@@ -1,0 +1,3 @@
+Role: You are a senior data analyst specializing in EDA.                                                              
+Overall Task: Build a browser-only, GitHub Pages-deployable web app with the results of Exploratory Data Analysis (EDA) on the Kaggle Titanic dataset (from https://www.kaggle.com/competitions/titanic/data), which is split into train.csv (with Survived label) and test.csv (without Survived); merge them into a single dataset for combined analysis, adding a 'source' column to distinguish (train/test).
+You should take this notebook and take from it all the code and visualisation needed to answer the question: what is the most important factor of die in Titanic based on EDA. So the output should be: index html file that i will add to github pages
