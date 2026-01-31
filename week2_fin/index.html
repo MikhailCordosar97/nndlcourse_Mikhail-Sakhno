@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚢 Titanic ML Explorer | TensorFlow.js</title>
+    
+    <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* ===== VARIABLES ===== */
+        :root {
+            /* Color Palette */
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --primary-light: #3b82f6;
+            --secondary: #10b981;
+            --secondary-dark: #059669;
+            --accent: #8b5cf6;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --dark: #1f2937;
+            --dark-light: #374151;
+            --light: #f8fafc;
+            --gray: #9ca3af;
+            --gray-light: #e5e7eb;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            
+            /* Transitions */
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* ===== BASE STYLES ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: var(--dark);
+            line-height: 1.6;
+        }
+        
+        /* ===== CONTAINER ===== */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 30px;
+        }
+        
+        /* ===== HEADER ===== */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 2.5rem;
+            border-radius: 20px;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-xl);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: linear-gradient(90deg, var(--secondary), var(--accent));
+        }
+        
+        .header-content {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .main-title {
+            font-size: 3rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(to right, #fff, #e0e7ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            font-weight: 400;
+            max-width: 800px;
+        }
+        
+        .tech-badges {
+            display: flex;
+            gap: 10px;
+            margin-top: 1.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .badge {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        /* ===== SECTION GRID ===== */
+        .section-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        /* ===== CARD STYLES ===== */
+        .card {
+            background: white;
+            border-radius: 18px;
+            padding: 2rem;
+            box-shadow: var(--shadow-lg);
+            transition: var(--transition);
+            border: 1px solid rgba(229, 231, 235, 0.5);
+            height: fit-content;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--gray-light);
+        }
+        
+        .card-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--dark);
+        }
+        
+        .card-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2rem;
+        }
+        
+        /* ===== FILE UPLOAD ===== */
+        .upload-zone {
+            border: 3px dashed var(--gray-light);
+            border-radius: 16px;
+            padding: 3rem;
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition);
+            background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .upload-zone:hover {
+            border-color: var(--primary);
+            background: linear-gradient(to bottom, #f0f9ff, #e0f2fe);
+        }
+        
+        .upload-zone i {
+            font-size: 3.5rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            opacity: 0.8;
+        }
+        
+        .upload-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--dark);
+        }
+        
+        .upload-subtitle {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+        
+        .file-inputs-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .file-group {
+            position: relative;
+        }
+        
+        .file-label {
+            display: block;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+            color: var(--dark);
+            font-size: 0.95rem;
+        }
+        
+        /* ===== BUTTONS ===== */
+        .buttons-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .btn {
+            padding: 1rem 1.8rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.4);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, var(--secondary), var(--secondary-dark));
+            color: white;
+            box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.4);
+        }
+        
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, var(--warning), #d97706);
+            color: white;
+            box-shadow: 0 4px 14px 0 rgba(245, 158, 11, 0.4);
+        }
+        
+        .btn-warning:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger), #dc2626);
+            color: white;
+            box-shadow: 0 4px 14px 0 rgba(239, 68, 68, 0.4);
+        }
+        
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
+        }
+        
+        .btn-outline {
+            background: transparent;
+            color: var(--dark);
+            border: 2px solid var(--gray-light);
+        }
+        
+        .btn-outline:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(37, 99, 235, 0.05);
+        }
+        
+        /* ===== STATS GRID ===== */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: white;
+            padding: 1.5rem;
+            border-radius: 14px;
+            text-align: center;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(transparent, rgba(0, 0, 0, 0.1));
+        }
+        
+        .stat-value {
+            font-size: 2.8rem;
+            font-weight: 800;
+            margin: 0.5rem 0;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .stat-label {
+            font-size: 0.95rem;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* ===== DATA PREVIEW ===== */
+        .data-preview {
+            max-height: 280px;
+            overflow-y: auto;
+            border-radius: 12px;
+            border: 1px solid var(--gray-light);
+            margin: 1rem 0;
+            position: relative;
+        }
+        
+        .data-preview table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .data-preview thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .data-preview th {
+            background: linear-gradient(to right, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .data-preview td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--gray-light);
+            font-size: 0.9rem;
+        }
+        
+        .data-preview tr:hover {
+            background-color: #f8fafc;
+        }
+        
+        /* ===== CHART CONTAINERS ===== */
+        .chart-container {
+            background: white;
+            border-radius: 14px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--gray-light);
+            height: 320px;
+            position: relative;
+        }
+        
+        .chart-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        /* ===== TRAINING CONTROLS ===== */
+        .training-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin: 1.5rem 0;
+        }
+        
+        .control-group {
+            background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+            padding: 1.5rem;
+            border-radius: 14px;
+            border: 1px solid var(--gray-light);
+        }
+        
+        .control-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .control-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--dark-light);
+        }
+        
+        /* ===== PROGRESS BAR ===== */
+        .progress-container {
+            margin: 1.5rem 0;
+        }
+        
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-bar {
+            height: 10px;
+            background: var(--gray-light);
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            width: 0%;
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background-image: linear-gradient(
+                -45deg,
+                rgba(255, 255, 255, 0.2) 25%,
+                transparent 25%,
+                transparent 50%,
+                rgba(255, 255, 255, 0.2) 50%,
+                rgba(255, 255, 255, 0.2) 75%,
+                transparent 75%,
+                transparent
+            );
+            z-index: 1;
+            background-size: 50px 50px;
+            animation: move 2s linear infinite;
+        }
+        
+        @keyframes move {
+            0% { background-position: 0 0; }
+            100% { background-position: 50px 50px; }
+        }
+        
+        /* ===== METRICS DISPLAY ===== */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .metric-card {
+            padding: 2rem;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+            transition: var(--transition);
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-3px);
+        }
+        
+        .metric-card.accuracy {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+        }
+        
+        .metric-card.loss {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+        }
+        
+        .metric-card.auc {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+            color: white;
+        }
+        
+        .metric-value {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin: 0.5rem 0;
+        }
+        
+        .metric-label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        
+        /* ===== INSIGHTS ===== */
+        .insights {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            padding: 1.5rem;
+            border-radius: 14px;
+            margin: 1.5rem 0;
+            border-left: 5px solid var(--primary);
+        }
+        
+        .insights-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--primary-dark);
+        }
+        
+        .insight-item {
+            margin: 0.75rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+        
+        .insight-item::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: var(--secondary);
+            font-weight: bold;
+        }
+        
+        /* ===== STATUS MESSAGES ===== */
+        .status {
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+            font-weight: 500;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .status-success {
+            background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+            color: #065f46;
+            border-left: 4px solid var(--secondary);
+            display: block;
+        }
+        
+        .status-error {
+            background: linear-gradient(135deg, #fee2e2, #fecaca);
+            color: #7f1d1d;
+            border-left: 4px solid var(--danger);
+            display: block;
+        }
+        
+        .status-info {
+            background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+            color: #1e40af;
+            border-left: 4px solid var(--primary);
+            display: block;
+        }
+        
+        /* ===== DEPLOYMENT SECTION ===== */
+        .deployment-section {
+            background: linear-gradient(135deg, var(--dark), #111827);
+            color: white;
+            padding: 2.5rem;
+            border-radius: 20px;
+            margin-top: 3rem;
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .deployment-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .step {
+            text-align: center;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .step-number {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            margin: 0 auto 1rem;
+            font-size: 1.3rem;
+        }
+        
+        /* ===== RESPONSIVE DESIGN ===== */
+        @media (max-width: 1200px) {
+            .section-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .main-title {
+                font-size: 2.5rem;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 1.5rem;
+            }
+            
+            .file-inputs-grid,
+            .training-controls {
+                grid-template-columns: 1fr;
+            }
+            
+            .main-title {
+                font-size: 2rem;
+            }
+            
+            .buttons-container {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+            
+            .header {
+                padding: 1.5rem;
+            }
+        }
+        
+        /* ===== CUSTOM SCROLLBAR ===== */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, var(--primary-dark), var(--accent));
+        }
+        
+        /* ===== INPUT STYLES ===== */
+        input[type="file"] {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid var(--gray-light);
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: var(--transition);
+            background: white;
+            cursor: pointer;
+        }
+        
+        input[type="file"]:focus {
+            border-color: var(--primary);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        
+        input[type="range"], 
+        select, 
+        input[type="number"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid var(--gray-light);
+            border-radius: 10px;
+            font-size: 1rem;
+            background: white;
+            transition: var(--transition);
+        }
+        
+        input[type="range"]:focus,
+        select:focus,
+        input[type="number"]:focus {
+            border-color: var(--primary);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        
+        /* ===== CHECKBOX STYLES ===== */
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0.75rem 0;
+            cursor: pointer;
+        }
+        
+        .checkbox-container input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--gray-light);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .checkbox-container input[type="checkbox"]:checked {
+            background-color: var(--primary);
+            border-color: var(--primary);
+        }
+        
+        /* ===== LOADING ANIMATION ===== */
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* ===== FLOATING ACTION BUTTON ===== */
+        .fab {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.5rem;
+            box-shadow: var(--shadow-lg);
+            cursor: pointer;
+            z-index: 1000;
+            transition: var(--transition);
+        }
+        
+        .fab:hover {
+            transform: scale(1.1);
+            box-shadow: var(--shadow-xl);
+        }
+    </style>
+</head>
+<body>
+    <!-- Floating Action Button -->
+    <div class="fab" onclick="scrollToTop()">
+        <i class="fas fa-arrow-up"></i>
+    </div>
+
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="main-title">
+                    <i class="fas fa-ship"></i> Titanic ML Explorer
+                </h1>
+                <p class="subtitle">
+                    Interactive Machine Learning in Browser • Binary Survival Classification • 
+                    Real-time Training Visualizations • Export Ready for Kaggle
+                </p>
+                
+                <div class="tech-badges">
+                    <span class="badge"><i class="fab fa-js"></i> TensorFlow.js</span>
+                    <span class="badge"><i class="fas fa-brain"></i> Neural Network</span>
+                    <span class="badge"><i class="fas fa-chart-line"></i> Live Metrics</span>
+                    <span class="badge"><i class="fas fa-cloud-upload-alt"></i> GitHub Pages Ready</span>
+                    <span class="badge"><i class="fas fa-database"></i> Kaggle Dataset</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="section-grid">
+            <!-- Left Column -->
+            <div class="left-column">
+                <!-- Section 1: Data Load -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <div class="card-icon">
+                                <i class="fas fa-database"></i>
+                            </div>
+                            <span>1. Data Load & Exploration</span>
+                        </div>
+                        <div class="card-actions">
+                            <span class="badge" style="background: var(--primary); color: white;">Step 1</span>
+                        </div>
+                    </div>
+                    
+                    <div class="upload-zone" onclick="document.getElementById('train-file').click()">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3 class="upload-title">Upload Kaggle Titanic CSV Files</h3>
+                        <p class="upload-subtitle">Click here or drag & drop train.csv and test.csv files</p>
+                    </div>
+                    
+                    <div class="file-inputs-grid">
+                        <div class="file-group">
+                            <label class="file-label">
+                                <i class="fas fa-train"></i> Training Data (train.csv)
+                            </label>
+                            <input type="file" id="train-file" accept=".csv">
+                        </div>
+                        <div class="file-group">
+                            <label class="file-label">
+                                <i class="fas fa-vial"></i> Test Data (test.csv)
+                            </label>
+                            <input type="file" id="test-file" accept=".csv">
+                        </div>
+                    </div>
+                    
+                    <div class="buttons-container">
+                        <button class="btn btn-primary" onclick="loadData()">
+                            <i class="fas fa-upload"></i> Load & Explore Data
+                        </button>
+                        <button class="btn btn-outline" onclick="resetAll()">
+                            <i class="fas fa-redo"></i> Reset All
+                        </button>
+                    </div>
+                    
+                    <div id="data-status" class="status"></div>
+                    
+                    <div id="data-overview" style="display: none;">
+                        <h3 class="chart-title">
+                            <i class="fas fa-chart-bar"></i> Dataset Overview
+                        </h3>
+                        
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="total-passengers">0</div>
+                                <div class="stat-label">Total Passengers</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="train-count">0</div>
+                                <div class="stat-label">Training Set</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="test-count">0</div>
+                                <div class="stat-label">Test Set</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="survival-rate">0%</div>
+                                <div class="stat-label">Survival Rate</div>
+                            </div>
+                        </div>
+                        
+                        <div class="chart-container">
+                            <h4 class="chart-title">
+                                <i class="fas fa-chart-pie"></i> Survival Distribution
+                            </h4>
+                            <canvas id="initial-chart"></canvas>
+                        </div>
+                        
+                        <div class="insights">
+                            <div class="insights-title">
+                                <i class="fas fa-lightbulb"></i> Initial Insights
+                            </div>
+                            <div class="insight-item">Women had significantly higher survival rates than men</div>
+                            <div class="insight-item">First class passengers were more likely to survive</div>
+                            <div class="insight-item">Age distribution shows majority in 20-40 range</div>
+                            <div class="insight-item">Missing values detected in Age and Cabin columns</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Section 3: Model Architecture -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <div class="card-icon">
+                                <i class="fas fa-network-wired"></i>
+                            </div>
+                            <span>3. Model Architecture</span>
+                        </div>
+                        <div class="card-actions">
+                            <span class="badge" style="background: var(--accent); color: white;">Step 3</span>
+                        </div>
+                    </div>
+                    
+                    <div id="model-status" class="status"></div>
+                    
+                    <div id="model-controls" style="display: none;">
+                        <div class="training-controls">
+                            <div class="control-group">
+                                <h4 class="control-title">
+                                    <i class="fas fa-sliders-h"></i> Model Configuration
+                                </h4>
+                                <label class="control-label">Hidden Layer Units</label>
+                                <input type="range" id="hidden-units" min="4" max="32" step="4" value="16" 
+                                       oninput="document.getElementById('units-value').textContent = this.value">
+                                <div style="text-align: center; font-weight: 700; font-size: 1.2rem; color: var(--primary);">
+                                    <span id="units-value">16</span> units
+                                </div>
+                                
+                                <label class="control-label">Learning Rate</label>
+                                <select id="learning-rate">
+                                    <option value="0.001">0.001 (Default)</option>
+                                    <option value="0.0005">0.0005</option>
+                                    <option value="0.0001">0.0001</option>
+                                </select>
+                                
+                                <label class="control-label">Activation Function</label>
+                                <select id="activation">
+                                    <option value="relu">ReLU (Recommended)</option>
+                                    <option value="sigmoid">Sigmoid</option>
+                                    <option value="tanh">Tanh</option>
+                                </select>
+                            </div>
+                            
+                            <div class="control-group">
+                                <h4 class="control-title">
+                                    <i class="fas fa-info-circle"></i> Model Summary
+                                </h4>
+                                <div style="background: white; padding: 1rem; border-radius: 10px; 
+                                            font-family: 'Courier New', monospace; font-size: 0.9rem;
+                                            max-height: 250px; overflow-y: auto; border: 1px solid var(--gray-light);">
+                                    <div id="model-summary">
+                                        <div style="color: var(--gray); text-align: center; padding: 2rem;">
+                                            <i class="fas fa-cogs fa-2x"></i><br>
+                                            Model not built yet
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="buttons-container">
+                            <button class="btn btn-success" onclick="buildModel()">
+                                <i class="fas fa-cogs"></i> Build Neural Network
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Section 5: Evaluation Metrics -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <div class="card-icon">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                            <span>5. Evaluation Metrics</span>
+                        </div>
+                        <div class="card-actions">
+                            <span class="badge" style="background: var(--warning); color: white;">Step 5</span>
+                        </div>
+                    </div>
+                    
+                    <div id="metrics-status" class="status"></div>
+                    
+                    <div id="metrics-display" style="display: none;">
+                        <div class="metrics-grid">
+                            <div class="metric-card accuracy">
+                                <div class="metric-value" id="accuracy-value">0.00</div>
+                                <div class="metric-label">Accuracy</div>
+                            </div>
+                            <div class="metric-card loss">
+                                <div class="metric-value" id="loss-value">0.00</div>
+                                <div class="metric-label">Loss</div>
+                            </div>
+                            <div class="metric-card auc">
+                                <div class="metric-value" id="auc-value">0.00</div>
+                                <div class="metric-label">ROC-AUC</div>
+                            </div>
+                        </div>
+                        
+                        <div class="training-controls">
+                            <div class="control-group">
+                                <h4 class="control-title">
+                                    <i class="fas fa-sliders-h"></i> Decision Threshold
+                                </h
