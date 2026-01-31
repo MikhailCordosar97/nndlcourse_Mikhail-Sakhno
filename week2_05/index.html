@@ -1,0 +1,1276 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Titanic Neural Explorer | Browser ML</title>
+    
+    <!-- TensorFlow.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+    
+    <!-- Apple-like fonts -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=SF+Pro+Text:wght@300;400;500&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        /* Apple-inspired Design System */
+        :root {
+            /* Apple Color Palette */
+            --apple-light-gray: #f5f5f7;
+            --apple-dark-gray: #1d1d1f;
+            --apple-blue: #007aff;
+            --apple-blue-dark: #0056cc;
+            --apple-green: #34c759;
+            --apple-orange: #ff9500;
+            --apple-red: #ff3b30;
+            --apple-purple: #af52de;
+            --apple-card-bg: rgba(255, 255, 255, 0.8);
+            --apple-border: rgba(0, 0, 0, 0.1);
+            --apple-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            --apple-glass: rgba(255, 255, 255, 0.7);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--apple-light-gray);
+            color: var(--apple-dark-gray);
+            line-height: 1.6;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        /* Navigation Bar */
+        .nav-bar {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--apple-border);
+            padding: 0 2rem;
+            height: 60px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: 'SF Pro Display', sans-serif;
+            font-weight: 700;
+            font-size: 1.4rem;
+            color: var(--apple-dark-gray);
+        }
+        
+        .nav-logo i {
+            color: var(--apple-blue);
+        }
+        
+        .nav-steps {
+            display: flex;
+            gap: 2rem;
+        }
+        
+        .step-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #8e8e93;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        
+        .step-indicator.active {
+            color: var(--apple-blue);
+        }
+        
+        .step-number {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #e5e5ea;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .step-indicator.active .step-number {
+            background: var(--apple-blue);
+            color: white;
+        }
+        
+        /* Main Content */
+        .main-content {
+            max-width: 1200px;
+            margin: 80px auto 40px;
+            padding: 0 2rem;
+        }
+        
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            margin-bottom: 4rem;
+            padding: 3rem 0;
+        }
+        
+        .hero h1 {
+            font-family: 'SF Pro Display', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+        
+        .hero p {
+            font-size: 1.2rem;
+            color: #6d6d73;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        /* Glassmorphism Cards */
+        .card {
+            background: var(--apple-card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 20px;
+            border: 1px solid var(--apple-border);
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--apple-shadow);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--apple-border);
+        }
+        
+        .card-title {
+            font-family: 'SF Pro Display', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: var(--apple-dark-gray);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .card-title i {
+            color: var(--apple-blue);
+        }
+        
+        .card-badge {
+            background: var(--apple-blue);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        
+        /* File Upload Area - Apple Style */
+        .file-upload-area {
+            border: 2px dashed #d1d1d6;
+            border-radius: 16px;
+            padding: 3rem;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 1.5rem 0;
+        }
+        
+        .file-upload-area:hover {
+            border-color: var(--apple-blue);
+            background: rgba(0, 122, 255, 0.05);
+        }
+        
+        .upload-icon {
+            font-size: 3.5rem;
+            color: var(--apple-blue);
+            margin-bottom: 1rem;
+            opacity: 0.8;
+        }
+        
+        .upload-text h3 {
+            font-family: 'SF Pro Display', sans-serif;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--apple-dark-gray);
+        }
+        
+        .upload-text p {
+            color: #8e8e93;
+            margin-bottom: 1.5rem;
+        }
+        
+        /* File Input Grid */
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .file-group {
+            background: white;
+            border-radius: 14px;
+            padding: 1.5rem;
+            border: 1px solid var(--apple-border);
+        }
+        
+        .file-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1rem;
+            font-weight: 600;
+            color: var(--apple-dark-gray);
+        }
+        
+        .file-label i {
+            color: var(--apple-blue);
+        }
+        
+        input[type="file"] {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e5e5ea;
+            border-radius: 12px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+        
+        input[type="file"]:focus {
+            border-color: var(--apple-blue);
+            outline: none;
+        }
+        
+        /* Apple-style Buttons */
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+        
+        .btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 12px;
+            font-family: 'SF Pro Text', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+        
+        .btn-primary {
+            background: var(--apple-blue);
+            color: white;
+            box-shadow: 0 4px 16px rgba(0, 122, 255, 0.3);
+        }
+        
+        .btn-primary:hover {
+            background: var(--apple-blue-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 122, 255, 0.4);
+        }
+        
+        .btn-secondary {
+            background: rgba(0, 122, 255, 0.1);
+            color: var(--apple-blue);
+            border: 1px solid rgba(0, 122, 255, 0.2);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(0, 122, 255, 0.15);
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: var(--apple-green);
+            color: white;
+            box-shadow: 0 4px 16px rgba(52, 199, 89, 0.3);
+        }
+        
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 199, 89, 0.4);
+        }
+        
+        .btn-warning {
+            background: var(--apple-orange);
+            color: white;
+            box-shadow: 0 4px 16px rgba(255, 149, 0, 0.3);
+        }
+        
+        .btn-danger {
+            background: var(--apple-red);
+            color: white;
+            box-shadow: 0 4px 16px rgba(255, 59, 48, 0.3);
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+        }
+        
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0.5rem 0;
+            font-family: 'SF Pro Display', sans-serif;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        /* Data Preview Table */
+        .data-preview {
+            overflow-x: auto;
+            margin: 2rem 0;
+            border-radius: 14px;
+            border: 1px solid var(--apple-border);
+            background: white;
+        }
+        
+        .data-preview table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 600px;
+        }
+        
+        .data-preview th {
+            background: #f8f8f8;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            color: var(--apple-dark-gray);
+            border-bottom: 2px solid var(--apple-border);
+            font-family: 'SF Pro Display', sans-serif;
+        }
+        
+        .data-preview td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--apple-border);
+        }
+        
+        .data-preview tr:hover {
+            background: #f8f8f8;
+        }
+        
+        /* Training Controls */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        
+        .control-group {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 16px;
+            border: 1px solid var(--apple-border);
+        }
+        
+        .control-label {
+            display: block;
+            margin-bottom: 0.8rem;
+            font-weight: 600;
+            color: var(--apple-dark-gray);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        /* Slider Styling */
+        .slider-container {
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background: white;
+            border-radius: 16px;
+            border: 1px solid var(--apple-border);
+        }
+        
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: linear-gradient(to right, #007aff, #34c759);
+            border-radius: 3px;
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--apple-blue);
+            cursor: pointer;
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        /* Metrics Display */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .metric-card {
+            padding: 2rem;
+            border-radius: 16px;
+            text-align: center;
+            background: white;
+            border: 1px solid var(--apple-border);
+            transition: transform 0.3s ease;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-4px);
+        }
+        
+        .metric-value {
+            font-size: 2.8rem;
+            font-weight: 700;
+            margin: 1rem 0;
+            font-family: 'SF Pro Display', sans-serif;
+        }
+        
+        .accuracy { border-top: 4px solid var(--apple-green); }
+        .loss { border-top: 4px solid var(--apple-red); }
+        .auc { border-top: 4px solid var(--apple-blue); }
+        
+        /* Progress Bar */
+        .progress-container {
+            margin: 2rem 0;
+        }
+        
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background: #e5e5ea;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007aff, #34c759);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+        
+        /* Status Messages */
+        .status {
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+            font-weight: 500;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .status-success {
+            background: rgba(52, 199, 89, 0.1);
+            color: #2a9d3e;
+            border-left: 4px solid var(--apple-green);
+            display: block;
+        }
+        
+        .status-error {
+            background: rgba(255, 59, 48, 0.1);
+            color: #d63031;
+            border-left: 4px solid var(--apple-red);
+            display: block;
+        }
+        
+        .status-info {
+            background: rgba(0, 122, 255, 0.1);
+            color: var(--apple-blue);
+            border-left: 4px solid var(--apple-blue);
+            display: block;
+        }
+        
+        /* Deployment Section */
+        .deployment {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 3rem;
+            border-radius: 20px;
+            margin-top: 4rem;
+            text-align: center;
+        }
+        
+        .deployment h2 {
+            font-family: 'SF Pro Display', sans-serif;
+            font-size: 2.2rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .deployment-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .step {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1.5rem;
+            border-radius: 16px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .step-number {
+            width: 40px;
+            height: 40px;
+            background: white;
+            color: #667eea;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            margin: 0 auto 1rem;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 0 1rem;
+                margin-top: 60px;
+            }
+            
+            .nav-bar {
+                padding: 0 1rem;
+            }
+            
+            .nav-steps {
+                display: none;
+            }
+            
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            .card {
+                padding: 1.5rem;
+            }
+            
+            .file-grid,
+            .controls-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+        
+        /* Chart Containers */
+        .chart-container {
+            height: 400px;
+            margin: 2rem 0;
+            background: white;
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid var(--apple-border);
+        }
+        
+        .section {
+            display: none;
+        }
+        
+        .section.active {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Toggle Switch */
+        .toggle-group {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: var(--apple-blue);
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav-bar">
+        <div class="nav-logo">
+            <i class="fas fa-brain"></i>
+            <span>Titanic Neural Explorer</span>
+        </div>
+        <div class="nav-steps">
+            <div class="step-indicator active" data-step="1">
+                <span class="step-number">1</span>
+                <span>Data</span>
+            </div>
+            <div class="step-indicator" data-step="2">
+                <span class="step-number">2</span>
+                <span>Preprocess</span>
+            </div>
+            <div class="step-indicator" data-step="3">
+                <span class="step-number">3</span>
+                <span>Model</span>
+            </div>
+            <div class="step-indicator" data-step="4">
+                <span class="step-number">4</span>
+                <span>Train</span>
+            </div>
+            <div class="step-indicator" data-step="5">
+                <span class="step-number">5</span>
+                <span>Results</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Hero Section -->
+        <section class="hero">
+            <h1>Discover Patterns in Titanic Survival</h1>
+            <p>Interactive neural network training in your browser. No server required. Powered by TensorFlow.js.</p>
+        </section>
+
+        <!-- Section 1: Data Load -->
+        <section id="section-1" class="section active">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-database"></i>
+                        Data Load & Exploration
+                    </h2>
+                    <span class="card-badge">Step 1</span>
+                </div>
+
+                <div class="file-upload-area" id="dropZone" onclick="document.getElementById('trainFile').click()">
+                    <div class="upload-icon">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </div>
+                    <div class="upload-text">
+                        <h3>Upload Kaggle Titanic Dataset</h3>
+                        <p>Drag & drop your train.csv and test.csv files here or click to browse</p>
+                        <p style="font-size: 0.9rem; color: #8e8e93;">Download from: https://www.kaggle.com/competitions/titanic/data</p>
+                    </div>
+                </div>
+
+                <div class="file-grid">
+                    <div class="file-group">
+                        <label class="file-label">
+                            <i class="fas fa-train"></i>
+                            Training Data (train.csv)
+                        </label>
+                        <input type="file" id="trainFile" accept=".csv">
+                    </div>
+                    <div class="file-group">
+                        <label class="file-label">
+                            <i class="fas fa-vial"></i>
+                            Test Data (test.csv)
+                        </label>
+                        <input type="file" id="testFile" accept=".csv">
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="loadAndExploreData()">
+                        <i class="fas fa-chart-bar"></i>
+                        Load & Explore Data
+                    </button>
+                    <button class="btn btn-secondary" onclick="resetAll()">
+                        <i class="fas fa-redo"></i>
+                        Reset
+                    </button>
+                </div>
+
+                <div id="data-status" class="status status-info">
+                    Ready to load Titanic dataset
+                </div>
+
+                <!-- Data Overview (hidden initially) -->
+                <div id="data-overview" style="display: none;">
+                    <h3 style="margin: 2rem 0 1rem 0; color: var(--apple-dark-gray);">Dataset Overview</h3>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="total-passengers">0</div>
+                            <div class="stat-label">Total Passengers</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="train-count">0</div>
+                            <div class="stat-label">Training Set</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="test-count">0</div>
+                            <div class="stat-label">Test Set</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="survival-rate">0%</div>
+                            <div class="stat-label">Survival Rate</div>
+                        </div>
+                    </div>
+
+                    <h4 style="margin: 2rem 0 1rem 0; color: var(--apple-dark-gray);">Data Preview</h4>
+                    <div class="data-preview">
+                        <table id="preview-table">
+                            <thead>
+                                <tr>
+                                    <th>PassengerId</th>
+                                    <th>Name</th>
+                                    <th>Pclass</th>
+                                    <th>Sex</th>
+                                    <th>Age</th>
+                                    <th>Fare</th>
+                                    <th>Survived</th>
+                                </tr>
+                            </thead>
+                            <tbody id="preview-body"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="chart-container">
+                        <canvas id="exploration-chart"></canvas>
+                    </div>
+
+                    <div class="button-group" style="margin-top: 2rem;">
+                        <button class="btn btn-success" onclick="goToStep(2)">
+                            <i class="fas fa-arrow-right"></i>
+                            Continue to Preprocessing
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Preprocessing -->
+        <section id="section-2" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-cogs"></i>
+                        Feature Engineering
+                    </h2>
+                    <span class="card-badge">Step 2</span>
+                </div>
+
+                <div class="controls-grid">
+                    <div class="control-group">
+                        <h3 style="margin-bottom: 1.5rem; color: var(--apple-dark-gray);">
+                            <i class="fas fa-sliders-h"></i> Preprocessing Options
+                        </h3>
+                        
+                        <div class="toggle-group">
+                            <label class="control-label">
+                                <i class="fas fa-users"></i>
+                                Family Size Feature
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="family-size-toggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="toggle-group">
+                            <label class="control-label">
+                                <i class="fas fa-user"></i>
+                                Is Alone Feature
+                            </label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="is-alone-toggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <p style="margin-top: 1rem; color: #8e8e93; font-size: 0.9rem;">
+                            <i class="fas fa-info-circle"></i>
+                            Age: Median imputation • Fare: Standardization • Categorical: One-hot encoding
+                        </p>
+                    </div>
+
+                    <div class="control-group">
+                        <h3 style="margin-bottom: 1.5rem; color: var(--apple-dark-gray);">
+                            <i class="fas fa-list-alt"></i> Feature Preview
+                        </h3>
+                        <div id="feature-preview" style="font-family: monospace; font-size: 0.9rem; color: #6d6d73;">
+                            Features will appear here after preprocessing
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="preprocessData()">
+                        <i class="fas fa-bolt"></i>
+                        Apply Preprocessing
+                    </button>
+                    <button class="btn btn-secondary" onclick="goToStep(1)">
+                        <i class="fas fa-arrow-left"></i>
+                        Back to Data
+                    </button>
+                </div>
+
+                <div id="preprocess-status" class="status"></div>
+
+                <div id="preprocess-results" style="display: none; margin-top: 2rem;">
+                    <div class="chart-container">
+                        <canvas id="feature-correlation-chart"></canvas>
+                    </div>
+
+                    <div class="button-group" style="margin-top: 2rem;">
+                        <button class="btn btn-success" onclick="goToStep(3)">
+                            <i class="fas fa-arrow-right"></i>
+                            Continue to Model Building
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Model -->
+        <section id="section-3" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-network-wired"></i>
+                        Neural Network Architecture
+                    </h2>
+                    <span class="card-badge">Step 3</span>
+                </div>
+
+                <div class="controls-grid">
+                    <div class="control-group">
+                        <h3 style="margin-bottom: 1.5rem; color: var(--apple-dark-gray);">
+                            <i class="fas fa-sliders-h"></i> Model Configuration
+                        </h3>
+                        
+                        <label class="control-label">
+                            <i class="fas fa-layer-group"></i>
+                            Hidden Layer Units
+                        </label>
+                        <input type="range" id="hidden-units" min="8" max="32" step="4" value="16" 
+                               style="width: 100%; margin-bottom: 1.5rem;">
+                        <div style="text-align: center; font-weight: 600; color: var(--apple-blue);">
+                            <span id="units-display">16</span> units
+                        </div>
+                        
+                        <label class="control-label">
+                            <i class="fas fa-tachometer-alt"></i>
+                            Learning Rate
+                        </label>
+                        <select id="learning-rate" style="width: 100%; padding: 0.8rem; border-radius: 8px; border: 1px solid #e5e5ea;">
+                            <option value="0.001">0.001 (Default)</option>
+                            <option value="0.0005">0.0005</option>
+                            <option value="0.0001">0.0001</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <h3 style="margin-bottom: 1.5rem; color: var(--apple-dark-gray);">
+                            <i class="fas fa-info-circle"></i> Model Summary
+                        </h3>
+                        <div id="model-summary" style="background: #f8f8f8; padding: 1.5rem; border-radius: 12px; 
+                                                      font-family: 'SF Mono', monospace; font-size: 0.9rem;
+                                                      max-height: 300px; overflow-y: auto;">
+                            <div style="color: #8e8e93; text-align: center; padding: 2rem;">
+                                <i class="fas fa-cogs fa-2x"></i><br>
+                                Model architecture will appear here
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="buildModel()">
+                        <i class="fas fa-cogs"></i>
+                        Build Neural Network
+                    </button>
+                    <button class="btn btn-secondary" onclick="goToStep(2)">
+                        <i class="fas fa-arrow-left"></i>
+                        Back to Preprocessing
+                    </button>
+                </div>
+
+                <div id="model-status" class="status"></div>
+
+                <div id="model-built" style="display: none; margin-top: 2rem;">
+                    <div class="button-group">
+                        <button class="btn btn-success" onclick="goToStep(4)">
+                            <i class="fas fa-arrow-right"></i>
+                            Continue to Training
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Training -->
+        <section id="section-4" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-running"></i>
+                        Model Training
+                    </h2>
+                    <span class="card-badge">Step 4</span>
+                </div>
+
+                <div class="controls-grid">
+                    <div class="control-group">
+                        <h3 style="margin-bottom: 1.5rem; color: var(--apple-dark-gray);">
+                            <i class="fas fa-sliders-h"></i> Training Parameters
+                        </h3>
+                        
+                        <label class="control-label">
+                            <i class="fas fa-redo"></i>
+                            Epochs
+                        </label>
+                        <input type="range" id="epochs" min="20" max="100" step="10" value="50" 
+                               style="width: 100%; margin-bottom: 1.5rem;">
+                        <div style="text-align: center; font-weight: 600; color: var(--apple-blue);">
+                            <span id="epochs-display">50</span> epochs
+                        </div>
+                        
+                        <label class="control-label">
+                            <i class="fas fa-th-large"></i>
+                            Batch Size
+                        </label>
+                        <select id="batch-size" style="width: 100%; padding: 0.8rem; border-radius: 8px; border: 1px solid #e5e5ea;">
+                            <option value="16">16</option>
+                            <option value="32" selected>32</option>
+                            <option value="64">64</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <h3 style="margin-bottom: 1.5rem; color: var(--apple-dark-gray);">
+                            <i class="fas fa-chart-line"></i> Training Progress
+                        </h3>
+                        
+                        <div class="progress-container">
+                            <div class="progress-header">
+                                <span>Training Progress</span>
+                                <span id="progress-text">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="training-progress"></div>
+                            </div>
+                        </div>
+
+                        <div id="training-stats" style="text-align: center; margin-top: 1.5rem; padding: 1rem; background: #f8f8f8; border-radius: 12px;">
+                            <div style="font-size: 1.2rem; font-weight: 600; color: var(--apple-dark-gray);">
+                                Ready to Train
+                            </div>
+                            <div style="color: #8e8e93; margin-top: 0.5rem;">
+                                Click "Start Training" to begin
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="startTraining()">
+                        <i class="fas fa-play"></i>
+                        Start Training
+                    </button>
+                    <button class="btn btn-danger" onclick="stopTraining()">
+                        <i class="fas fa-stop"></i>
+                        Stop Training
+                    </button>
+                    <button class="btn btn-secondary" onclick="goToStep(3)">
+                        <i class="fas fa-arrow-left"></i>
+                        Back to Model
+                    </button>
+                </div>
+
+                <div id="training-status" class="status"></div>
+
+                <div id="training-visualization" style="display: none; margin-top: 2rem;">
+                    <div class="chart-container">
+                        <canvas id="training-chart"></canvas>
+                    </div>
+
+                    <div class="button-group" style="margin-top: 2rem;">
+                        <button class="btn btn-success" onclick="goToStep(5)">
+                            <i class="fas fa-arrow-right"></i>
+                            View Results & Metrics
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 5: Results -->
+        <section id="section-5" class="section">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">
+                        <i class="fas fa-chart-bar"></i>
+                        Evaluation & Predictions
+                    </h2>
+                    <span class="card-badge">Step 5</span>
+                </div>
+
+                <!-- Metrics Display -->
+                <div id="metrics-display" style="display: none;">
+                    <div class="metrics-grid">
+                        <div class="metric-card accuracy">
+                            <div class="metric-value" id="accuracy-value">0.000</div>
+                            <div class="metric-label">Accuracy</div>
+                        </div>
+                        <div class="metric-card loss">
+                            <div class="metric-value" id="loss-value">0.000</div>
+                            <div class="metric-label">Loss</div>
+                        </div>
+                        <div class="metric-card auc">
+                            <div class="metric-value" id="auc-value">0.000</div>
+                            <div class="metric-label">ROC-AUC</div>
+                        </div>
+                    </div>
+
+                    <!-- Threshold Slider -->
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span style="font-weight: 600; color: var(--apple-dark-gray);">
+                                <i class="fas fa-sliders-h"></i> Decision Threshold
+                            </span>
+                            <span id="threshold-value" style="font-weight: 700; color: var(--apple-blue);">0.5</span>
+                        </div>
+                        <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.5">
+                        <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; color: #8e8e93; font-size: 0.9rem;">
+                            <span>More Conservative</span>
+                            <span>More Aggressive</span>
+                        </div>
+                    </div>
+
+                    <!-- Confusion Matrix -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin: 2rem 0;">
+                        <div>
+                            <h3 style="margin-bottom: 1rem; color: var(--apple-dark-gray);">
+                                <i class="fas fa-th"></i> Confusion Matrix
+                            </h3>
+                            <div class="chart-container">
+                                <canvas id="confusion-chart"></canvas>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 style="margin-bottom: 1rem; color: var(--apple-dark-gray);">
+                                <i class="fas fa-chart-line"></i> ROC Curve
+                            </h3>
+                            <div class="chart-container">
+                                <canvas id="roc-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export Section -->
+                <div id="export-section" style="display: none; margin-top: 2rem;">
+                    <h3 style="margin-bottom: 1.5rem; color: var(--apple-dark-gray);">
+                        <i class="fas fa-download"></i> Export Results
+                    </h3>
+                    
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="exportSubmission()">
+                            <i class="fas fa-file-csv"></i>
+                            Download submission.csv
+                        </button>
+                        <button class="btn btn-secondary" onclick="exportProbabilities()">
+                            <i class="fas fa-chart-line"></i>
+                            Download probabilities.csv
+                        </button>
+                        <button class="btn btn-success" onclick="saveModel()">
+                            <i class="fas fa-save"></i>
+                            Save Model
+                        </button>
+                    </div>
+                    
+                    <div id="export-status" class="status" style="margin-top: 1rem;"></div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="evaluateModel()">
+                        <i class="fas fa-chart-bar"></i>
+                        Evaluate Model
+                    </button>
+                    <button class="btn btn-warning" onclick="makePredictions()">
+                        <i class="fas fa-crystal-ball"></i>
+                        Make Predictions
+                    </button>
+                    <button class="btn btn-secondary" onclick="goToStep(4)">
+                        <i class="fas fa-arrow-left"></i>
+                        Back to Training
+                    </button>
+                </div>
+
+                <div id="results-status" class="status"></div>
+            </div>
+        </section>
+
+        <!-- Deployment Section -->
+        <section class="deployment">
+            <h2>Deploy on GitHub Pages</h2>
+            <p style="max-width: 800px; margin: 0 auto 2rem; opacity: 0.9;">
+                This app runs entirely in the browser with no server required. Perfect for static hosting on GitHub Pages.
+            </p>
+            
+            <div class="deployment-steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h4>Create Repository</h4>
+                    <p>Create a public GitHub repository</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h4>Commit Files</h4>
+                    <p>Commit index.html and app.js files</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h4>Enable Pages</h4>
+                    <p>Settings → Pages → Source: main/root</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h4>Access Your App</h4>
+                    <p>Visit: https://[username].github.io/[repo]</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- JavaScript -->
+    <script src="app.js"></script>
+</body>
+</html>
