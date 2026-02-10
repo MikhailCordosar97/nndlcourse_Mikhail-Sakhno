@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Network Design: The Gradient Puzzle</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        body {
+            background: #0f172a;
+            color: #e2e8f0;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #334155;
+        }
+
+        h1 {
+            color: #60a5fa;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.2rem;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .panel {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid #334155;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .panel h2 {
+            color: #38bdf8;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 14px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 1rem;
+        }
+
+        button:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+        }
+
+        button#autoTrainBtn.active {
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .theory-box {
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid #334155;
+            border-left: 4px solid #8b5cf6;
+        }
+
+        .theory-box h3 {
+            color: #a78bfa;
+            margin-bottom: 10px;
+        }
+
+        .theory-box p {
+            color: #cbd5e1;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .theory-box ul {
+            color: #cbd5e1;
+            padding-left: 20px;
+            margin: 10px 0;
+        }
+
+        .theory-box li {
+            margin-bottom: 5px;
+        }
+
+        .loss-controls {
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid #334155;
+        }
+
+        .slider-container {
+            margin-bottom: 15px;
+        }
+
+        .slider-container label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: #cbd5e1;
+        }
+
+        .slider-container input {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #334155;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider-container input::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+        }
+
+        .slider-value {
+            color: #60a5fa;
+            font-weight: bold;
+        }
+
+        .visualization {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .vis-container {
+            text-align: center;
+        }
+
+        .vis-container h3 {
+            margin-bottom: 15px;
+            color: #cbd5e1;
+            font-size: 1.1rem;
+            height: 3em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            width: 256px;
+            height: 256px;
+            image-rendering: pixelated;
+            border: 2px solid #475569;
+            border-radius: 8px;
+            background: #0f172a;
+        }
+
+        .histogram {
+            width: 256px;
+            height: 100px;
+            margin-top: 10px;
+            border: 1px solid #475569;
+            border-radius: 4px;
+        }
+
+        .status {
+            grid-column: 1 / -1;
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 30px;
+            border: 1px solid #334155;
+        }
+
+        #log {
+            font-family: 'Monaco', 'Consolas', monospace;
+            background: #0f172a;
+            padding: 15px;
+            border-radius: 8px;
+            height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+            border: 1px solid #334155;
+        }
+
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid #334155;
+        }
+
+        .step-count { color: #60a5fa; }
+        .loss-baseline { color: #10b981; }
+        .loss-student { color: #f59e0b; }
+        .error { color: #ef4444; }
+
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #334155;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 1024px) {
+            .main-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .visualization {
+                grid-template-columns: 1fr;
+            }
+            
+            canvas {
+                width: 200px;
+                height: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Neural Network Design: The Gradient Puzzle</h1>
+        <p class="subtitle">Distribution Matching + Shape Constraints = Emergent Gradient Structure</p>
+    </header>
+
+    <div class="main-container">
+        <div class="panel">
+            <h2>Controls</h2>
+            <div class="controls">
+                <button id="trainStepBtn">Train 1 Step</button>
+                <button id="autoTrainBtn">Auto Train (Start)</button>
+                <button id="resetBtn">Reset Weights</button>
+            </div>
+
+            <div class="theory-box">
+                <h3>How Loss Functions Define the "Rules of the Game"</h3>
+                <p><strong>Pixel MSE Loss:</strong> Forces exact pixel matching → Identity mapping</p>
+                <p><strong>Distribution MSE Loss:</strong> Matches histogram of values → Allows pixel rearrangement</p>
+                <p><strong>Add Shape Constraints:</strong></p>
+                <ul>
+                    <li>Smoothness: Encourages local consistency</li>
+                    <li>Direction: Creates left-dark to right-bright gradient</li>
+                </ul>
+                <p><em>Result: Noise rearranges into structured gradient through backpropagation</em></p>
+            </div>
+
+            <div class="loss-controls">
+                <h3>Student Loss Parameters</h3>
+                <div class="slider-container">
+                    <label>
+                        <span>Smoothness Weight:</span>
+                        <span class="slider-value" id="smoothnessValue">0.0</span>
+                    </label>
+                    <input type="range" id="smoothnessSlider" min="0" max="1" step="0.01" value="0">
+                </div>
+                <div class="slider-container">
+                    <label>
+                        <span>Direction Weight:</span>
+                        <span class="slider-value" id="directionValue">0.0</span>
+                    </label>
+                    <input type="range" id="directionSlider" min="0" max="1" step="0.01" value="0">
+                </div>
+                <div style="margin-top: 15px; color: #94a3b8; font-size: 0.9rem;">
+                    <p>Try: Smoothness = 0.1, Direction = 0.05 for best results</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Visualization</h2>
+            <div class="visualization">
+                <div class="vis-container">
+                    <h3>Input (Fixed 16×16 Noise)</h3>
+                    <canvas id="inputCanvas"></canvas>
+                    <canvas id="inputHistogram" class="histogram"></canvas>
+                </div>
+                <div class="vis-container">
+                    <h3>Baseline (Pixel MSE)<br>Pixel Positions Fixed</h3>
+                    <canvas id="baselineCanvas"></canvas>
+                    <canvas id="baselineHistogram" class="histogram"></canvas>
+                </div>
+                <div class="vis-container">
+                    <h3>Student (Distribution + Constraints)<br>Pixels Can Rearrange</h3>
+                    <canvas id="studentCanvas"></canvas>
+                    <canvas id="studentHistogram" class="histogram"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status">
+        <h3>Training Status</h3>
+        <div id="log">Initializing TensorFlow.js...</div>
+    </div>
+
+    <footer>
+        <p>Neural networks are projection machines • Loss functions define the "rules of the game"</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
