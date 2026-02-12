@@ -22,7 +22,7 @@ const actionButton = document.getElementById('actionButton');
 const actionButtonText = document.getElementById('actionButtonText');
 
 // ----- Конфигурация -----
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxaVf_U37okJHJfTN0mRJXk1awTWxxYURXZVD0BRSazm0U2vwEcDX2IKwTzq0QmRKGp/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyKnFU5Yw23kUIRl5Erobbf-5N1PLhAaV8iG54Dpec-1mK7cjN0BjguX5jJQLwo8GX5/exec';
 
 // ----- Состояние приложения -----
 let reviews = [];
