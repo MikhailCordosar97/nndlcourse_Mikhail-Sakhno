@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Gradient Puzzle — Neural Network Design</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', monospace;
+        }
+        body {
+            background: #0a1420;
+            color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            background: #1a2a3a;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        h1 {
+            margin: 0 0 5px 0;
+            color: #89cff0;
+            font-weight: 400;
+        }
+        .subtitle {
+            color: #b0b0b0;
+            margin-bottom: 20px;
+            border-left: 3px solid #3a6ea5;
+            padding-left: 15px;
+        }
+        .panel {
+            background: #1e3347;
+            border-radius: 15px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            background: #2c4058;
+            border: none;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 14px;
+            border: 1px solid #4a6a8a;
+            transition: 0.2s;
+        }
+        button:hover {
+            background: #3a5670;
+        }
+        .arch-selector {
+            display: flex;
+            gap: 20px;
+            background: #172b3a;
+            padding: 8px 15px;
+            border-radius: 30px;
+        }
+        .arch-selector label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .canvas-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .canvas-card {
+            background: #1e3347;
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+        .canvas-card p {
+            margin: 0 0 10px 0;
+            color: #aac7e0;
+            font-size: 14px;
+        }
+        canvas {
+            width: 100%;
+            aspect-ratio: 1;
+            image-rendering: pixelated;
+            background: #0a1a2a;
+            border-radius: 8px;
+            border: 2px solid #3a5670;
+        }
+        .log-panel {
+            background: #0e1e2e;
+            border-radius: 12px;
+            padding: 15px;
+            font-family: monospace;
+            border: 1px solid #2a4055;
+        }
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            color: #89cff0;
+            margin-bottom: 8px;
+        }
+        #logContent {
+            min-height: 60px;
+            white-space: pre-wrap;
+        }
+        .levels {
+            display: flex;
+            gap: 15px;
+            margin: 10px 0;
+            color: #b0d0f0;
+        }
+        .level-badge {
+            background: #1e3a5a;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧩 The Gradient Puzzle</h1>
+    <div class="subtitle">Transform noise → gradient without creating new colors (rearrange only)</div>
+    
+    <div class="levels">
+        <span class="level-badge">Level 1: MSE → copy</span>
+        <span class="level-badge">Level 2: Sorted MSE → rearrange</span>
+        <span class="level-badge">Level 3: Smooth + Direction → gradient</span>
+    </div>
+    
+    <div class="panel">
+        <div class="btn-group">
+            <button id="trainBtn">🎯 Train 1 Step</button>
+            <button id="autoBtn">▶ Auto</button>
+            <button id="resetBtn">↺ Reset</button>
+        </div>
+        <div class="arch-selector">
+            <label><input type="radio" name="arch" value="compression" checked> Compression</label>
+            <label><input type="radio" name="arch" value="transformation"> Transformation</label>
+            <label><input type="radio" name="arch" value="expansion"> Expansion</label>
+        </div>
+    </div>
+    
+    <div class="canvas-row">
+        <div class="canvas-card">
+            <p>📦 INPUT (random noise)</p>
+            <canvas id="canvasInput" width="128" height="128"></canvas>
+        </div>
+        <div class="canvas-card">
+            <p>📌 BASELINE (MSE only, copy)</p>
+            <canvas id="canvasBaseline" width="128" height="128"></canvas>
+        </div>
+        <div class="canvas-card">
+            <p>🎨 STUDENT (sorted MSE + smooth + dir)</p>
+            <canvas id="canvasStudent" width="128" height="128"></canvas>
+        </div>
+    </div>
+    
+    <div class="log-panel">
+        <div class="log-header">
+            <span>📋 LOG</span>
+            <span id="stepCounter">Step: 0</span>
+        </div>
+        <div id="logContent">⚡ Ready. Press Train to see gradient emerge</div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<script>
+// ==================== КОНФИГУРАЦИЯ ====================
+const SIZE = 16;
+const LR = 0.01;
+
+// Фиксированный шум (один и тот же при каждом запуске)
+const INPUT_NOISE = tf.tidy(() => 
+    tf.randomUniform([1, SIZE, SIZE, 1], 0, 1, 'float32', 42)
+);
+
+// UI элементы
+const canvasIn = document.getElementById('canvasInput');
+const canvasBase = document.getElementById('canvasBaseline');
+canvasBase.style.backgroundColor = '#0a1a2a';
+const canvasStud = document.getElementById('canvasStudent');
+const logDiv = document.getElementById('logContent');
+const stepSpan = document.getElementById('stepCounter');
+
+// Состояние
+let baselineModel, studentModel;
+let step = 0;
+let autoInterval = null;
+let currentArch = 'compression';
+
+// ==================== ФУНКЦИИ ПОТЕРЬ (строго по презентации) ====================
+
+// Level 1: Pixel-wise MSE (запрещает движение)
+function pixelMSE(yTrue, yPred) {
+    return tf.losses.meanSquaredError(yTrue, yPred).mean();
+}
+
+// Level 2: Sorted MSE (разрешает перестановку)
+function sortedMSE(yTrue, yPred) {
+    return tf.tidy(() => {
+        const flatTrue = yTrue.flatten();
+        const flatPred = yPred.flatten();
+        const n = flatTrue.shape[0];
+        // Сортируем оба тензора по убыванию
+        const sortedTrue = tf.topk(flatTrue, n).values;
+        const sortedPred = tf.topk(flatPred, n).values;
+        return tf.losses.meanSquaredError(sortedTrue, sortedPred).mean();
+    });
+}
+
+// Level 3: Smoothness (Total Variation) - локальная согласованность
+function smoothnessLoss(yPred) {
+    return tf.tidy(() => {
+        // Разности по горизонтали
+        const left = yPred.slice([0,0,0,0], [-1, SIZE-1, -1, -1]);
+        const right = yPred.slice([0,0,1,0], [-1, SIZE-1, -1, -1]);
+        const horizDiff = right.sub(left).square().mean();
+        
+        // Разности по вертикали
+        const top = yPred.slice([0,0,0,0], [-1, SIZE-1, -1, -1]);
+        const bottom = yPred.slice([0,1,0,0], [-1, SIZE-1, -1, -1]);
+        const vertDiff = bottom.sub(top).square().mean();
+        
+        return horizDiff.add(vertDiff).div(2);
+    });
+}
+
+// Level 3: Direction - градиент слева (темно) направо (светло)
+function directionLoss(yPred) {
+    return tf.tidy(() => {
+        // Создаём маску: линейно от 0 до 1 слева направо
+        const mask = tf.linspace(0, 1, SIZE)
+            .reshape([1, 1, SIZE])
+            .tile([SIZE, 1])
+            .reshape([1, SIZE, SIZE, 1]);
+        
+        // Чем ярче справа, тем меньше loss (поэтому минус)
+        const weighted = yPred.mul(mask).mean();
+        return tf.scalar(-1).mul(weighted);
+    });
+}
+
+// ==================== СОЗДАНИЕ МОДЕЛЕЙ ====================
+
+// Baseline (MSE only) - всегда копирует вход
+function createBaselineModel() {
+    const model = tf.sequential();
+    model.add(tf.layers.flatten({ inputShape: [SIZE, SIZE, 1] }));
+    model.add(tf.layers.dense({ units: 128, activation: 'relu' }));
+    model.add(tf.layers.dense({ units: SIZE*SIZE, activation: 'sigmoid' }));
+    model.add(tf.layers.reshape({ targetShape: [SIZE, SIZE, 1] }));
+    return model;
+}
+
+// Student model с разными архитектурами
+function createStudentModel(type) {
+    const model = tf.sequential();
+    model.add(tf.layers.flatten({ inputShape: [SIZE, SIZE, 1] }));
+    
+    if (type === 'compression') {
+        model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
+        model.add(tf.layers.dense({ units: 128, activation: 'relu' }));
+    } else if (type === 'transformation') {
+        model.add(tf.layers.dense({ units: 256, activation: 'relu' }));
+        model.add(tf.layers.dense({ units: 256, activation: 'relu' }));
+    } else { // expansion
+        model.add(tf.layers.dense({ units: 512, activation: 'relu' }));
+        model.add(tf.layers.dense({ units: 512, activation: 'relu' }));
+    }
+    
+    model.add(tf.layers.dense({ units: SIZE*SIZE, activation: 'sigmoid' }));
+    model.add(tf.layers.reshape({ targetShape: [SIZE, SIZE, 1] }));
+    return model;
+}
+
+// ==================== СТУДЕНЧЕСКАЯ ФУНКЦИЯ ПОТЕРЬ (ИТОГОВАЯ) ====================
+// Комбинация из презентации: L_total = L_sortedMSE + λ1*L_smooth + λ2*L_dir
+function studentTotalLoss(yTrue, yPred) {
+    return tf.tidy(() => {
+        const sorted = sortedMSE(yTrue, yPred);           // разрешает перестановку
+        const smooth = smoothnessLoss(yPred);             // убирает шум
+        const dir = directionLoss(yPred);                 // создаёт градиент
+        
+        // Коэффициенты подобраны для быстрой сходимости
+        const lambda1 = 2.0;  // smoothness
+        const lambda2 = 5.0;  // direction
+        
+        return sorted.add(smooth.mul(lambda1)).add(dir.mul(lambda2));
+    });
+}
+
+// ==================== ИНИЦИАЛИЗАЦИЯ ====================
+function initModels() {
+    tf.tidy(() => {
+        if (baselineModel) baselineModel.dispose();
+        if (studentModel) studentModel.dispose();
+        
+        baselineModel = createBaselineModel();
+        studentModel = createStudentModel(currentArch);
+    });
+    step = 0;
+    log('🔄 Models reset');
+    updateCanvas();
+}
+
+// ==================== ШАГ ОБУЧЕНИЯ (РАБОЧАЯ ВЕРСИЯ) ====================
+function trainStep() {
+    tf.tidy(() => {
+        // 1. Baseline обучение (MSE)
+        const basePred = baselineModel.predict(INPUT_NOISE);
+        const baseLoss = pixelMSE(INPUT_NOISE, basePred);
+        const baseGrads = tf.grads(() => baseLoss)(baselineModel.trainableVariables);
+        tf.train.adam(LR).applyGradients(baseGrads);
+        
+        // 2. Student обучение (полная loss)
+        const studPred = studentModel.predict(INPUT_NOISE);
+        const studLoss = studentTotalLoss(INPUT_NOISE, studPred);
+        const studGrads = tf.grads(() => studLoss)(studentModel.trainableVariables);
+        tf.train.adam(LR).applyGradients(studGrads);
+        
+        // Логирование
+        const baseVal = baseLoss.dataSync()[0].toFixed(4);
+        const studVal = studLoss.dataSync()[0].toFixed(4);
+        step++;
+        
+        // Проверяем, формируется ли градиент (считаем корреляцию с маской)
+        const predData = studPred.dataSync();
+        let correlation = 0;
+        for (let i = 0; i < SIZE; i++) {
+            for (let j = 0; j < SIZE; j++) {
+                correlation += predData[i * SIZE + j] * (j / SIZE);
+            }
+        }
+        correlation = (correlation / (SIZE*SIZE) * 2 - 0.5).toFixed(3);
+        
+        log(`Step ${step} | Base: ${baseVal} | Student: ${studVal} | Gradient strength: ${correlation}`);
+    });
+    
+    updateCanvas();
+}
+
+// ==================== ОТРИСОВКА ====================
+async function renderTensor(tensor, canvas) {
+    const data = tensor.squeeze([0]);
+    await tf.browser.toPixels(data, canvas);
+}
+
+async function updateCanvas() {
+    await renderTensor(INPUT_NOISE, canvasIn);
+    
+    if (baselineModel) {
+        const pred = baselineModel.predict(INPUT_NOISE);
+        await renderTensor(pred, canvasBase);
+        pred.dispose();
+    }
+    
+    if (studentModel) {
+        const pred = studentModel.predict(INPUT_NOISE);
+        await renderTensor(pred, canvasStud);
+        pred.dispose();
+    }
+}
+
+function log(msg) {
+    logDiv.innerText = msg;
+    stepSpan.innerText = `Step: ${step}`;
+}
+
+// ==================== ОБРАБОТЧИКИ ====================
+document.getElementById('trainBtn').addEventListener('click', () => {
+    trainStep();
+});
+
+document.getElementById('autoBtn').addEventListener('click', (e) => {
+    if (autoInterval) {
+        clearInterval(autoInterval);
+        autoInterval = null;
+        e.target.innerText = '▶ Auto';
+    } else {
+        autoInterval = setInterval(() => trainStep(), 100);
+        e.target.innerText = '⏸ Stop';
+    }
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+    if (autoInterval) {
+        clearInterval(autoInterval);
+        autoInterval = null;
+        document.getElementById('autoBtn').innerText = '▶ Auto';
+    }
+    initModels();
+    updateCanvas();
+});
+
+// Смена архитектуры
+document.querySelectorAll('input[name="arch"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        currentArch = e.target.value;
+        if (studentModel) studentModel.dispose();
+        studentModel = createStudentModel(currentArch);
+        log(`🔁 Architecture: ${currentArch}`);
+        updateCanvas();
+    });
+});
+
+// ==================== СТАРТ ====================
+initModels();
+log('✅ Ready! Press "Train 1 Step" to see gradient emerge');
+</script>
+</body>
+</html>
