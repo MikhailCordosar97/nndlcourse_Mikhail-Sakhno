@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Network Design: The Gradient Puzzle</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, monospace;
+        }
+        body {
+            background: #0b1a2f;
+            color: #cbd5e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            background: #0f2740;
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 20px 30px -10px rgba(0,0,0,0.7);
+            border: 1px solid #2d4b6e;
+        }
+        h1 {
+            margin-top: 0;
+            margin-bottom: 0.25rem;
+            font-weight: 400;
+            color: #b3e5fc;
+            letter-spacing: 1px;
+            font-size: 2rem;
+        }
+        .sub {
+            color: #8aa9c9;
+            margin-bottom: 1.5rem;
+            font-style: italic;
+            border-left: 3px solid #3b6e9e;
+            padding-left: 1rem;
+        }
+        .panel {
+            background: #102c41;
+            border-radius: 18px;
+            padding: 18px 20px;
+            margin-bottom: 25px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            align-items: center;
+            border: 1px solid #2a4b6a;
+        }
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        button {
+            background: #1e3b55;
+            border: none;
+            color: white;
+            padding: 10px 22px;
+            border-radius: 40px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.15s;
+            box-shadow: 0 4px 8px rgba(0, 10, 20, 0.6);
+            border: 1px solid #3c6283;
+        }
+        button:hover {
+            background: #264f70;
+            border-color: #78a9d1;
+            transform: scale(0.98);
+        }
+        button:active {
+            background: #1b344a;
+        }
+        .arch-selector {
+            background: #082238;
+            padding: 10px 16px;
+            border-radius: 36px;
+            display: flex;
+            gap: 20px;
+            border: 1px solid #2c5670;
+        }
+        .arch-selector label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+        input[type="radio"] {
+            accent-color: #69c0ff;
+            width: 16px;
+            height: 16px;
+        }
+        .canvas-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            margin: 30px 0 20px;
+        }
+        .canvas-card {
+            background: #0a1f30;
+            border-radius: 18px;
+            padding: 15px 15px 10px 15px;
+            text-align: center;
+            flex: 1;
+            border: 1px solid #2f5575;
+            box-shadow: inset 0 0 0 1px rgba(100,170,255,0.1);
+        }
+        .canvas-card p {
+            margin: 0 0 12px 0;
+            font-weight: 300;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 0.85rem;
+            color: #9bbde2;
+        }
+        canvas {
+            width: 100%;
+            aspect-ratio: 1/1;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            background: #11212e;
+            border-radius: 12px;
+            border: 2px solid #2c5a7a;
+            display: block;
+        }
+        .log-box {
+            background: #031520;
+            border-radius: 18px;
+            padding: 16px 20px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            border: 1px solid #2c5670;
+            color: #b0d4f0;
+            box-shadow: inset 0 0 15px #00000055;
+        }
+        .log-header {
+            display: flex;
+            gap: 30px;
+            font-weight: 600;
+            color: #7bb3e0;
+            margin-bottom: 8px;
+        }
+        #logContent {
+            min-height: 3em;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .note {
+            font-size: 0.85rem;
+            color: #98b8d9;
+            margin-top: 10px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧩 The Gradient Puzzle</h1>
+    <div class="sub"> rearrangement without repainting — be the architect of intent</div>
+
+    <div class="panel">
+        <div class="button-group">
+            <button id="trainStepBtn">⟳ Train 1 Step</button>
+            <button id="autoTrainBtn">▶ Auto Train (Start)</button>
+            <button id="resetBtn">↺ Reset Weights</button>
+        </div>
+        <div class="arch-selector" id="archSelector">
+            <label><input type="radio" name="arch" value="compression" checked> Compression (implemented)</label>
+            <label><input type="radio" name="arch" value="transformation"> Transformation (TODO)</label>
+            <label><input type="radio" name="arch" value="expansion"> Expansion (TODO)</label>
+        </div>
+    </div>
+
+    <div class="canvas-row">
+        <div class="canvas-card">
+            <p>🎲 INPUT (fixed noise)</p>
+            <canvas id="canvasInput" width="128" height="128"></canvas>
+        </div>
+        <div class="canvas-card">
+            <p>📌 BASELINE (MSE only)</p>
+            <canvas id="canvasBaseline" width="128" height="128"></canvas>
+        </div>
+        <div class="canvas-card">
+            <p>⚙️ STUDENT (your loss)</p>
+            <canvas id="canvasStudent" width="128" height="128"></canvas>
+        </div>
+    </div>
+
+    <div class="log-box">
+        <div class="log-header">
+            <span>📋 status / log</span>
+            <span id="stepCount">step 0</span>
+        </div>
+        <div id="logContent">⏳ initializing ...</div>
+        <div class="note">sorted mse + smoothness + direction = gradient from noise</div>
+    </div>
+</div>
+
+<!-- TensorFlow.js and app code -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
