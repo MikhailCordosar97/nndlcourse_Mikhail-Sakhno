@@ -26,7 +26,7 @@ function log(msg) {
 }
 
 function drawTensor(tensor, canvas) {
-    // tensor форма [1, 256]
+    // tensor имеет форму [1, 256]
     const data = tensor.dataSync();
     const ctx = canvas.getContext('2d');
     const size = canvas.width;
@@ -54,6 +54,7 @@ function sortedMSELoss(yTrue, yPred) {
         const yTrueFlat = yTrue.reshape([-1]);
         const yPredFlat = yPred.reshape([-1]);
         const k = SIZE * SIZE;
+        // Сортировка по возрастанию через отрицание
         const yTrueSorted = tf.topk(yTrueFlat.neg(), k).values.neg();
         const yPredSorted = tf.topk(yPredFlat.neg(), k).values.neg();
         return tf.mean(tf.square(tf.sub(yTrueSorted, yPredSorted)));
@@ -61,9 +62,11 @@ function sortedMSELoss(yTrue, yPred) {
 }
 
 function smoothnessLoss(yPred) {
+    // yPred форма [1, 256]
     return tf.tidy(() => {
-        const flat = yPred.dataSync(); // [256]
+        const flat = yPred.dataSync(); // плоский массив
         let loss = 0;
+        // горизонтальные разности
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE - 1; x++) {
                 const idx = y * SIZE + x;
@@ -71,6 +74,7 @@ function smoothnessLoss(yPred) {
                 loss += diff * diff;
             }
         }
+        // вертикальные разности
         for (let y = 0; y < SIZE - 1; y++) {
             for (let x = 0; x < SIZE; x++) {
                 const idx = y * SIZE + x;
@@ -85,8 +89,9 @@ function smoothnessLoss(yPred) {
 }
 
 function directionLoss(yPred) {
+    // yPred форма [1, 256]
     return tf.tidy(() => {
-        // Создаём плоскую маску: для каждого пикселя значение = x / (SIZE-1)
+        // Создаём плоскую маску вручную: значение = x / (SIZE-1)
         const maskData = new Float32Array(SIZE * SIZE);
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE; x++) {
@@ -94,7 +99,7 @@ function directionLoss(yPred) {
             }
         }
         const mask = tf.tensor(maskData).reshape([1, SIZE * SIZE]);
-        // yPred уже [1, 256]
+        // Чем больше совпадение с маской, тем меньше loss (через отрицание)
         return tf.neg(tf.mean(tf.mul(yPred, mask)));
     });
 }
@@ -106,10 +111,11 @@ function studentLoss(yTrue, yPred) {
         const smooth = smoothnessLoss(yPred);
         const dir = directionLoss(yPred);
         
+        // Коэффициенты: sorted маленький, direction большой
         return sorted
             .mul(0.001)
             .add(smooth.mul(0.05))
-            .add(dir.mul(1.0));
+            .add(dir.mul(2.0));
     });
 }
 
@@ -152,11 +158,13 @@ async function trainStep() {
     if (!inputTensor || !baselineModel || !studentModel) return;
 
     try {
+        // Обучаем baseline (MSE)
         await baselineModel.fit(inputTensor, inputTensor, {
             epochs: 1,
             verbose: 0
         });
 
+        // Обучаем student с кастомной loss
         if (!studentOptimizer) studentOptimizer = tf.train.adam(0.01);
         
         studentOptimizer.minimize(() => {
@@ -210,7 +218,7 @@ function init() {
     step = 0;
     updateDisplays();
     log('Ready. Press "Train 1 Step" or "Auto Train".');
-    log('Sorted=0.001, Smooth=0.05, Direction=1.0');
+    log('Sorted=0.001, Smooth=0.05, Direction=2.0');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
