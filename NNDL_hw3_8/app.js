@@ -26,12 +26,8 @@ function log(msg) {
 }
 
 function drawTensor(tensor, canvas) {
-    let data;
-    if (tensor.shape.length === 4) {
-        data = tensor.squeeze().dataSync(); // [SIZE, SIZE]
-    } else {
-        data = tensor.dataSync(); // плоский массив из 256 элементов
-    }
+    // tensor форма [1, 256]
+    const data = tensor.dataSync();
     const ctx = canvas.getContext('2d');
     const size = canvas.width;
     const cellSize = size / SIZE;
@@ -66,14 +62,12 @@ function sortedMSELoss(yTrue, yPred) {
 
 function smoothnessLoss(yPred) {
     return tf.tidy(() => {
-        const yImage = yPred.reshape([1, SIZE, SIZE, 1]);
-        const data = yImage.squeeze().dataSync(); // [SIZE, SIZE]
-        
+        const flat = yPred.dataSync(); // [256]
         let loss = 0;
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE - 1; x++) {
                 const idx = y * SIZE + x;
-                const diff = data[idx + 1] - data[idx];
+                const diff = flat[idx + 1] - flat[idx];
                 loss += diff * diff;
             }
         }
@@ -81,7 +75,7 @@ function smoothnessLoss(yPred) {
             for (let x = 0; x < SIZE; x++) {
                 const idx = y * SIZE + x;
                 const idx2 = (y + 1) * SIZE + x;
-                const diff = data[idx2] - data[idx];
+                const diff = flat[idx2] - flat[idx];
                 loss += diff * diff;
             }
         }
@@ -92,13 +86,16 @@ function smoothnessLoss(yPred) {
 
 function directionLoss(yPred) {
     return tf.tidy(() => {
-        // Маска: линейно возрастает по x от 0 до 1
-        const range = tf.linspace(0, 1, SIZE); // [SIZE]
-        const mask2d = tf.tile(range, [SIZE, 1]); // [SIZE, SIZE]
-        const mask = mask2d.reshape([1, SIZE, SIZE, 1]); // [1, SIZE, SIZE, 1]
-        
-        const yImage = yPred.reshape([1, SIZE, SIZE, 1]);
-        return tf.neg(tf.mean(tf.mul(yImage, mask)));
+        // Создаём плоскую маску: для каждого пикселя значение = x / (SIZE-1)
+        const maskData = new Float32Array(SIZE * SIZE);
+        for (let y = 0; y < SIZE; y++) {
+            for (let x = 0; x < SIZE; x++) {
+                maskData[y * SIZE + x] = x / (SIZE - 1);
+            }
+        }
+        const mask = tf.tensor(maskData).reshape([1, SIZE * SIZE]);
+        // yPred уже [1, 256]
+        return tf.neg(tf.mean(tf.mul(yPred, mask)));
     });
 }
 
@@ -109,9 +106,6 @@ function studentLoss(yTrue, yPred) {
         const smooth = smoothnessLoss(yPred);
         const dir = directionLoss(yPred);
         
-        // sorted очень маленький – разрешаем переставлять пиксели,
-        // smooth – убираем резкость,
-        // direction – главный двигатель градиента.
         return sorted
             .mul(0.001)
             .add(smooth.mul(0.05))
