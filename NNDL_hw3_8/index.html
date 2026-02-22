@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gradient Puzzle</title>
+    <style>
+        body {
+            background: #1a1a1a;
+            color: #fff;
+            font-family: monospace;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .canvas-row {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .canvas-box {
+            flex: 1;
+            text-align: center;
+        }
+        canvas {
+            width: 100%;
+            aspect-ratio: 1;
+            border: 2px solid #333;
+            image-rendering: pixelated;
+            background: #000;
+        }
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button.stop {
+            background: #f44336;
+        }
+        .log {
+            background: #2d2d2d;
+            padding: 10px;
+            border-radius: 4px;
+            height: 100px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧩 The Gradient Puzzle</h1>
+        
+        <div class="canvas-row">
+            <div class="canvas-box">
+                <h3>Input (Noise)</h3>
+                <canvas id="inputCanvas" width="256" height="256"></canvas>
+            </div>
+            <div class="canvas-box">
+                <h3>Baseline (MSE)</h3>
+                <canvas id="baselineCanvas" width="256" height="256"></canvas>
+                <div id="baselineLoss">0.000000</div>
+            </div>
+            <div class="canvas-box">
+                <h3>Student (Gradient)</h3>
+                <canvas id="studentCanvas" width="256" height="256"></canvas>
+                <div id="studentLoss">0.000000</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="trainBtn">Train 1 Step</button>
+            <button id="autoBtn">Auto Train</button>
+            <button id="resetBtn">Reset</button>
+        </div>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
