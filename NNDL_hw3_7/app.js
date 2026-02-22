@@ -23,67 +23,56 @@ function mse(yTrue, yPred) {
     return tf.mean(tf.square(tf.sub(yTrue, yPred)));
 }
 
-// Smoothness Loss (Total Variation)
+// Smoothness Loss
 function smoothnessLoss(yPred) {
     return tf.tidy(() => {
         const [batch, height, width, channels] = yPred.shape;
         
-        // Разница по горизонтали
+        // По горизонтали
         const left = yPred.slice([0, 0, 0, 0], [batch, height, width-1, channels]);
         const right = yPred.slice([0, 0, 1, 0], [batch, height, width-1, channels]);
         const horizontalDiff = tf.sub(left, right);
         
-        // Разница по вертикали
+        // По вертикали
         const top = yPred.slice([0, 0, 0, 0], [batch, height-1, width, channels]);
         const bottom = yPred.slice([0, 1, 0, 0], [batch, height-1, width, channels]);
         const verticalDiff = tf.sub(top, bottom);
         
-        const horizontalLoss = tf.mean(tf.square(horizontalDiff));
-        const verticalLoss = tf.mean(tf.square(verticalDiff));
-        
-        return tf.add(horizontalLoss, verticalLoss);
+        return tf.add(
+            tf.mean(tf.square(horizontalDiff)),
+            tf.mean(tf.square(verticalDiff))
+        );
     });
 }
 
-// Direction Loss - поощряет градиент слева направо
+// Direction Loss
 function directionLoss(yPred) {
     return tf.tidy(() => {
         const [batch, height, width, channels] = yPred.shape;
         
-        // Создаем маску: значения от 0 до 1 слева направо
-        const range = tf.linspace(0, 1, width);
-        const mask2d = tf.tile(range.reshape([1, width]), [height, 1]);
-        const mask = mask2d.reshape([1, height, width, 1]);
+        // Маска слева-направо
+        let mask = [];
+        for (let i = 0; i < width; i++) {
+            mask.push(i / width);
+        }
         
-        // Поощряем соответствие маске (чем больше значение * маска, тем лучше)
-        // Используем отрицательный знак для минимизации
-        return tf.neg(tf.mean(tf.mul(yPred, mask)));
+        const maskTensor = tf.tensor2d(
+            Array(height).fill(mask).flat(),
+            [height, width]
+        ).reshape([1, height, width, 1]);
+        
+        return tf.neg(tf.mean(tf.mul(yPred, maskTensor)));
     });
 }
 
-// ==================== Студенческая функция потерь (С РЕШЕНИЕМ) ====================
-function computeStudentLoss(yTrue, yPred) {
+// Student loss
+function studentLoss(yTrue, yPred) {
     return tf.tidy(() => {
-        // Базовая MSE потеря
         const mseLoss = mse(yTrue, yPred);
-        
-        // Добавляем smoothness для плавности
         const smoothLoss = smoothnessLoss(yPred);
-        
-        // Добавляем direction для градиента
         const dirLoss = directionLoss(yPred);
         
-        // Комбинируем с коэффициентами
-        // Коэффициенты подобраны для хорошего градиента
-        const total = tf.add(
-            tf.add(
-                mseLoss,
-                tf.mul(smoothLoss, 0.2)
-            ),
-            tf.mul(dirLoss, 0.1)
-        );
-        
-        return total;
+        return mseLoss.add(smoothLoss.mul(0.2)).add(dirLoss.mul(0.1));
     });
 }
 
@@ -93,12 +82,11 @@ function createBaselineModel() {
     
     model.add(tf.layers.conv2d({
         inputShape: [IMG_SIZE, IMG_SIZE, 1],
-        filters: 16,
+        filters: 8,
         kernelSize: 3,
         padding: 'same',
         activation: 'relu'
     }));
-    model.add(tf.layers.maxPooling2d({ poolSize: 2, padding: 'same' }));
     
     model.add(tf.layers.conv2d({
         filters: 8,
@@ -107,117 +95,40 @@ function createBaselineModel() {
         activation: 'relu'
     }));
     
-    model.add(tf.layers.upSampling2d({ size: 2 }));
-    model.add(tf.layers.conv2d({
-        filters: 16,
-        kernelSize: 3,
-        padding: 'same',
-        activation: 'relu'
-    }));
     model.add(tf.layers.conv2d({
         filters: 1,
         kernelSize: 3,
         padding: 'same',
         activation: 'sigmoid'
     }));
-    
-    // КОМПИЛИРУЕМ baseline модель с MSE loss
-    model.compile({
-        optimizer: 'adam',
-        loss: 'meanSquaredError'
-    });
     
     return model;
 }
 
-function createStudentModel(archType) {
+function createStudentModel() {
     const model = tf.sequential();
     
-    switch(archType) {
-        case 'compression':
-            model.add(tf.layers.conv2d({
-                inputShape: [IMG_SIZE, IMG_SIZE, 1],
-                filters: 16,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            model.add(tf.layers.maxPooling2d({ poolSize: 2, padding: 'same' }));
-            model.add(tf.layers.conv2d({
-                filters: 8,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            model.add(tf.layers.upSampling2d({ size: 2 }));
-            model.add(tf.layers.conv2d({
-                filters: 16,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            break;
-            
-        case 'transformation':
-            model.add(tf.layers.conv2d({
-                inputShape: [IMG_SIZE, IMG_SIZE, 1],
-                filters: 16,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            model.add(tf.layers.conv2d({
-                filters: 16,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            model.add(tf.layers.conv2d({
-                filters: 16,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            break;
-            
-        case 'expansion':
-            model.add(tf.layers.conv2d({
-                inputShape: [IMG_SIZE, IMG_SIZE, 1],
-                filters: 32,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            model.add(tf.layers.conv2d({
-                filters: 64,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            model.add(tf.layers.conv2d({
-                filters: 32,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            model.add(tf.layers.conv2d({
-                filters: 16,
-                kernelSize: 3,
-                padding: 'same',
-                activation: 'relu'
-            }));
-            break;
-    }
+    model.add(tf.layers.conv2d({
+        inputShape: [IMG_SIZE, IMG_SIZE, 1],
+        filters: 8,
+        kernelSize: 3,
+        padding: 'same',
+        activation: 'relu'
+    }));
     
-    // Выходной слой (общий для всех архитектур)
+    model.add(tf.layers.conv2d({
+        filters: 8,
+        kernelSize: 3,
+        padding: 'same',
+        activation: 'relu'
+    }));
+    
     model.add(tf.layers.conv2d({
         filters: 1,
         kernelSize: 3,
         padding: 'same',
         activation: 'sigmoid'
     }));
-    
-    // НЕ компилируем студенческую модель - будем использовать custom training loop
     
     return model;
 }
@@ -226,260 +137,166 @@ function createStudentModel(archType) {
 async function init() {
     log('Initializing...');
     
-    // Создаем фиксированный шум
-    inputTensor = tf.tidy(() => {
-        return tf.randomUniform([1, IMG_SIZE, IMG_SIZE, 1], 0, 1);
-    });
+    // Создаем входной шум
+    inputTensor = tf.randomUniform([1, IMG_SIZE, IMG_SIZE, 1], 0, 1);
     
     // Рисуем вход
-    await drawTensorToCanvas(inputTensor, inputCanvas);
+    drawTensor(inputTensor, inputCanvas);
     
     // Создаем модели
     baselineModel = createBaselineModel();
-    studentModel = createStudentModel('compression');
+    studentModel = createStudentModel();
     
-    // Инициализируем веса, сделав один проход
-    tf.tidy(() => {
-        baselineModel.predict(inputTensor);
-        studentModel.predict(inputTensor);
+    // Компилируем baseline
+    baselineModel.compile({
+        optimizer: 'adam',
+        loss: 'meanSquaredError'
     });
     
-    // Оптимизатор для кастомного обучения
+    // Оптимизатор для student
     optimizer = tf.train.adam(0.01);
     
     step = 0;
     stepSpan.textContent = step;
     
-    // Первое обновление дисплея
-    await updateDisplays();
+    // Первое предсказание
+    updateDisplays();
     
-    log('✅ Ready! Press "Train 1 Step" to begin.');
+    log('✅ Ready. Press "Train 1 Step" to begin.');
 }
 
 // ==================== Обучение ====================
 async function trainStep() {
-    if (!inputTensor || !baselineModel || !studentModel) {
-        log('❌ Models not initialized');
-        return;
-    }
+    if (!inputTensor || !baselineModel || !studentModel) return;
     
     try {
-        // Baseline обучение - используем model.fit
+        // Baseline обучение
         await baselineModel.fit(inputTensor, inputTensor, {
             epochs: 1,
             verbose: 0,
             batchSize: 1
         });
         
-        // Student обучение с кастомной функцией потерь
-        const studentLossValue = optimizer.minimize(() => {
+        // Student обучение
+        optimizer.minimize(() => {
             const pred = studentModel.apply(inputTensor, { training: true });
-            const loss = computeStudentLoss(inputTensor, pred);
+            const loss = studentLoss(inputTensor, pred);
             return loss;
-        }, true);
+        });
         
         step++;
         stepSpan.textContent = step;
         
-        // Обновляем дисплей
-        await updateDisplays();
+        updateDisplays();
         
-        if (step % 5 === 0) {
-            log(`Step ${step} completed (Student loss: ${studentLossValue?.dataSync()[0].toFixed(6) || 'N/A'})`);
+        if (step % 10 === 0) {
+            log(`Step ${step} completed`);
         }
     } catch (error) {
-        log(`❌ Error: ${error.message}`);
+        log(`Error: ${error.message}`);
         console.error(error);
     }
 }
 
 // ==================== Визуализация ====================
-async function drawTensorToCanvas(tensor, canvas) {
-    return tf.tidy(() => {
-        const data = tensor.squeeze().dataSync();
-        const ctx = canvas.getContext('2d');
-        const width = canvas.width;
-        const height = canvas.height;
-        const cellSize = width / IMG_SIZE;
-        
-        // Очищаем канвас
-        ctx.clearRect(0, 0, width, height);
-        
-        // Рисуем пиксели
-        for (let y = 0; y < IMG_SIZE; y++) {
-            for (let x = 0; x < IMG_SIZE; x++) {
-                const value = data[y * IMG_SIZE + x];
-                const brightness = Math.floor(value * 255);
-                ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
-                ctx.fillRect(x * cellSize, y * cellSize, cellSize - 1, cellSize - 1);
-            }
+function drawTensor(tensor, canvas) {
+    const data = tensor.squeeze().dataSync();
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const cellSize = width / IMG_SIZE;
+    
+    ctx.clearRect(0, 0, width, height);
+    
+    for (let y = 0; y < IMG_SIZE; y++) {
+        for (let x = 0; x < IMG_SIZE; x++) {
+            const val = data[y * IMG_SIZE + x];
+            const bright = Math.floor(val * 255);
+            ctx.fillStyle = `rgb(${bright}, ${bright}, ${bright})`;
+            ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
         }
-    });
+    }
 }
 
-async function updateDisplays() {
+function updateDisplays() {
     if (!inputTensor || !baselineModel || !studentModel) return;
     
-    tf.tidy(() => {
-        // Предсказания
-        const baselinePred = baselineModel.predict(inputTensor);
-        const studentPred = studentModel.predict(inputTensor);
-        
-        // Потери
-        const baselineLossVal = mse(inputTensor, baselinePred).dataSync()[0];
-        const studentLossVal = computeStudentLoss(inputTensor, studentPred).dataSync()[0];
-        
-        // Обновляем канвасы
-        drawTensorToCanvas(baselinePred, baselineCanvas);
-        drawTensorToCanvas(studentPred, studentCanvas);
-        
-        // Обновляем текст
-        baselineLossSpan.textContent = baselineLossVal.toFixed(6);
-        studentLossSpan.textContent = studentLossVal.toFixed(6);
-    });
+    const baselinePred = baselineModel.predict(inputTensor);
+    const studentPred = studentModel.predict(inputTensor);
+    
+    const baselineLoss = mse(inputTensor, baselinePred).dataSync()[0];
+    const studentLoss = studentLoss(inputTensor, studentPred).dataSync()[0];
+    
+    drawTensor(baselinePred, baselineCanvas);
+    drawTensor(studentPred, studentCanvas);
+    
+    baselineLossSpan.textContent = baselineLoss.toFixed(6);
+    studentLossSpan.textContent = studentLoss.toFixed(6);
+    
+    tf.dispose([baselinePred, studentPred]);
 }
 
-function log(message) {
-    const timestamp = new Date().toLocaleTimeString();
-    logArea.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+function log(msg) {
+    const time = new Date().toLocaleTimeString();
+    logArea.innerHTML += `<div>[${time}] ${msg}</div>`;
     logArea.scrollTop = logArea.scrollHeight;
 }
 
-// ==================== Сброс ====================
-async function reset() {
-    log('Resetting...');
-    
-    // Останавливаем автообучение
-    if (isAutoTraining) {
-        stopAutoTrain();
-    }
-    
-    // Очищаем память
-    if (baselineModel) tf.dispose(baselineModel);
-    if (studentModel) tf.dispose(studentModel);
-    
-    // Создаем новые модели
-    baselineModel = createBaselineModel();
-    
-    const selectedArch = Array.from(archRadios).find(r => r.checked).value;
-    studentModel = createStudentModel(selectedArch);
-    
-    // Инициализируем веса
-    tf.tidy(() => {
-        baselineModel.predict(inputTensor);
-        studentModel.predict(inputTensor);
-    });
-    
-    // Пересоздаем оптимизатор
-    optimizer = tf.train.adam(0.01);
-    
-    step = 0;
-    stepSpan.textContent = step;
-    
-    // Обновляем дисплей
-    await updateDisplays();
-    
-    log(`✅ Reset complete. Student architecture: ${selectedArch}`);
-}
-
-// ==================== Auto Train ====================
-function startAutoTrain() {
-    isAutoTraining = true;
-    autoTrainBtn.textContent = '⏸ Stop';
-    autoTrainBtn.classList.add('stop');
-    
-    async function trainLoop() {
-        if (!isAutoTraining) return;
-        
-        await trainStep();
-        
-        // Небольшая задержка для видимости процесса
-        setTimeout(() => {
-            animationFrame = requestAnimationFrame(trainLoop);
-        }, 100);
-    }
-    
-    animationFrame = requestAnimationFrame(trainLoop);
-    log('▶ Auto training started');
-}
-
-function stopAutoTrain() {
-    isAutoTraining = false;
-    autoTrainBtn.textContent = '▶ Auto Train';
-    autoTrainBtn.classList.remove('stop');
-    
-    if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
-        animationFrame = null;
-    }
-    
-    log('⏸ Auto training stopped');
-}
-
-// ==================== Event Listeners ====================
-trainOneBtn.addEventListener('click', async () => {
-    await trainStep();
-});
+// ==================== Управление ====================
+trainOneBtn.addEventListener('click', trainStep);
 
 autoTrainBtn.addEventListener('click', () => {
     if (isAutoTraining) {
-        stopAutoTrain();
+        isAutoTraining = false;
+        autoTrainBtn.textContent = '▶ Auto Train';
+        autoTrainBtn.classList.remove('stop');
+        cancelAnimationFrame(animationFrame);
+        log('Auto training stopped');
     } else {
-        startAutoTrain();
+        isAutoTraining = true;
+        autoTrainBtn.textContent = '⏸ Stop';
+        autoTrainBtn.classList.add('stop');
+        
+        function loop() {
+            if (!isAutoTraining) return;
+            trainStep().then(() => {
+                animationFrame = requestAnimationFrame(loop);
+            });
+        }
+        
+        animationFrame = requestAnimationFrame(loop);
+        log('Auto training started');
     }
 });
 
-resetBtn.addEventListener('click', reset);
-
-archRadios.forEach(radio => {
-    radio.addEventListener('change', async (e) => {
-        if (e.target.checked) {
-            log(`Switching to ${e.target.value} architecture...`);
-            
-            // Сохраняем старые веса если возможно
-            const oldWeights = studentModel ? studentModel.getWeights() : null;
-            
-            // Создаем новую модель
-            studentModel = createStudentModel(e.target.value);
-            
-            // Пытаемся скопировать веса из старой модели
-            if (oldWeights) {
-                try {
-                    const newWeights = studentModel.getWeights();
-                    for (let i = 0; i < Math.min(oldWeights.length, newWeights.length); i++) {
-                        if (oldWeights[i].shape.join() === newWeights[i].shape.join()) {
-                            newWeights[i].assign(oldWeights[i]);
-                        }
-                    }
-                    studentModel.setWeights(newWeights);
-                    log('✅ Preserved some weights');
-                } catch (e) {
-                    log('ℹ Started with fresh weights');
-                }
-            }
-            
-            // Инициализируем
-            tf.tidy(() => {
-                studentModel.predict(inputTensor);
-            });
-            
-            await updateDisplays();
-            log(`✅ Switched to ${e.target.value}`);
-        }
+resetBtn.addEventListener('click', () => {
+    // Останавливаем автообучение
+    if (isAutoTraining) {
+        isAutoTraining = false;
+        autoTrainBtn.textContent = '▶ Auto Train';
+        autoTrainBtn.classList.remove('stop');
+        cancelAnimationFrame(animationFrame);
+    }
+    
+    // Очищаем старые модели
+    tf.dispose([baselineModel, studentModel]);
+    
+    // Создаем новые
+    baselineModel = createBaselineModel();
+    studentModel = createStudentModel();
+    
+    baselineModel.compile({
+        optimizer: 'adam',
+        loss: 'meanSquaredError'
     });
+    
+    optimizer = tf.train.adam(0.01);
+    step = 0;
+    stepSpan.textContent = step;
+    
+    updateDisplays();
+    log('Models reset');
 });
 
 // ==================== Запуск ====================
-// Ждем загрузки TensorFlow.js
-tf.ready().then(() => {
-    log('TensorFlow.js loaded');
-    init();
-});
-
-// Очистка памяти при закрытии
-window.addEventListener('beforeunload', () => {
-    if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
-    }
-    tf.dispose([inputTensor, baselineModel, studentModel]);
-});
+tf.ready().then(init);
