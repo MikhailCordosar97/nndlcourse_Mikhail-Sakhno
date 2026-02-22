@@ -5,7 +5,7 @@ let autoTraining = false;
 let autoTimer = null;
 
 // ==================== МОДЕЛИ ====================
-let baselineModel, studentModel, inputTensor;
+let baselineModel, studentModel, inputTensor, studentOptimizer;
 
 // ==================== DOM ЭЛЕМЕНТЫ ====================
 const inputCanvas = document.getElementById('inputCanvas');
@@ -18,110 +18,27 @@ const trainBtn = document.getElementById('trainBtn');
 const autoBtn = document.getElementById('autoBtn');
 const resetBtn = document.getElementById('resetBtn');
 
-// ==================== ФУНКЦИИ ПОТЕРЬ ====================
-function mseLoss(yTrue, yPred) {
-    return tf.mean(tf.square(tf.sub(yTrue, yPred)));
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+function log(msg) {
+    const time = new Date().toLocaleTimeString();
+    logDiv.innerHTML += `<div>[${time}] ${msg}</div>`;
+    logDiv.scrollTop = logDiv.scrollHeight;
 }
 
-// Direction Loss - считаем вручную через массивы
-function directionLoss(yPred) {
-    return tf.tidy(() => {
-        const data = yPred.dataSync();
-        let loss = 0;
-        
-        // Считаем разницу между соседними пикселями по горизонтали
-        for (let y = 0; y < SIZE; y++) {
-            for (let x = 0; x < SIZE - 1; x++) {
-                const idx = y * SIZE + x;
-                loss += (data[idx + 1] - data[idx]); // хотим чтобы справа было светлее
-            }
-        }
-        
-        return tf.scalar(-loss / (SIZE * (SIZE - 1))); // минус чтобы минимизировать
-    });
-}
-
-// Smoothness Loss - штраф за резкие переходы
-function smoothnessLoss(yPred) {
-    return tf.tidy(() => {
-        const data = yPred.dataSync();
-        let loss = 0;
-        
-        // По горизонтали
-        for (let y = 0; y < SIZE; y++) {
-            for (let x = 0; x < SIZE - 1; x++) {
-                const idx = y * SIZE + x;
-                loss += Math.pow(data[idx + 1] - data[idx], 2);
-            }
-        }
-        
-        // По вертикали
-        for (let y = 0; y < SIZE - 1; y++) {
-            for (let x = 0; x < SIZE; x++) {
-                const idx = y * SIZE + x;
-                const idx2 = (y + 1) * SIZE + x;
-                loss += Math.pow(data[idx2] - data[idx], 2);
-            }
-        }
-        
-        return tf.scalar(loss / (SIZE * SIZE * 2));
-    });
-}
-
-// Student Loss
-function studentLoss(yTrue, yPred) {
-    const mse = mseLoss(yTrue, yPred);
-    const smooth = smoothnessLoss(yPred);
-    const dir = directionLoss(yPred);
-    
-    return mse.add(smooth.mul(1.0)).add(dir.mul(0.5));
-}
-
-// ==================== МОДЕЛИ ====================
-function createBaselineModel() {
-    const model = tf.sequential();
-    
-    model.add(tf.layers.dense({
-        inputShape: [SIZE * SIZE],
-        units: SIZE * SIZE,
-        activation: 'sigmoid',
-        useBias: true
-    }));
-    
-    model.compile({
-        optimizer: tf.train.adam(0.01),
-        loss: 'meanSquaredError'
-    });
-    
-    return model;
-}
-
-function createStudentModel() {
-    const model = tf.sequential();
-    
-    model.add(tf.layers.dense({
-        inputShape: [SIZE * SIZE],
-        units: 64,
-        activation: 'relu'
-    }));
-    
-    model.add(tf.layers.dense({
-        units: SIZE * SIZE,
-        activation: 'sigmoid'
-    }));
-    
-    return model;
-}
-
-// ==================== ВИЗУАЛИЗАЦИЯ ====================
+// Отрисовка тензора [1, SIZE, SIZE, 1] или [1, SIZE*SIZE] на canvas
 function drawTensor(tensor, canvas) {
-    const data = tensor.dataSync();
+    let data;
+    if (tensor.shape.length === 4) {
+        data = tensor.squeeze().dataSync();
+    } else {
+        // [1, SIZE*SIZE]
+        data = tensor.dataSync();
+    }
     const ctx = canvas.getContext('2d');
     const size = canvas.width;
     const cellSize = size / SIZE;
-    
+
     ctx.clearRect(0, 0, size, size);
-    
     for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
             const val = data[y * SIZE + x];
@@ -132,80 +49,201 @@ function drawTensor(tensor, canvas) {
     }
 }
 
-function updateDisplays() {
-    if (!inputTensor || !baselineModel || !studentModel) return;
-    
-    const baselinePred = baselineModel.predict(inputTensor);
-    const studentPred = studentModel.predict(inputTensor);
-    
-    const baselineLoss = mseLoss(inputTensor, baselinePred).dataSync()[0];
-    const sLoss = studentLoss(inputTensor, studentPred).dataSync()[0];
-    
-    drawTensor(baselinePred, baselineCanvas);
-    drawTensor(studentPred, studentCanvas);
-    
-    baselineLossDiv.textContent = baselineLoss.toFixed(6);
-    studentLossDiv.textContent = sLoss.toFixed(6);
-    
-    tf.dispose([baselinePred, studentPred]);
+// ==================== ФУНКЦИИ ПОТЕРЬ ====================
+
+// MSE (для baseline)
+function mseLoss(yTrue, yPred) {
+    return tf.mean(tf.square(tf.sub(yTrue, yPred)));
+}
+
+// Sorted MSE (сравнение распределений)
+function sortedMSELoss(yTrue, yPred) {
+    return tf.tidy(() => {
+        // Расплющиваем в 1D
+        const yTrueFlat = yTrue.reshape([-1]);
+        const yPredFlat = yPred.reshape([-1]);
+
+        // Сортируем по возрастанию (через отрицание)
+        const k = SIZE * SIZE;
+        const yTrueSorted = tf.topk(yTrueFlat.neg(), k).values.neg();
+        const yPredSorted = tf.topk(yPredFlat.neg(), k).values.neg();
+
+        return tf.mean(tf.square(tf.sub(yTrueSorted, yPredSorted)));
+    });
+}
+
+// Smoothness Loss через обычные циклы (надёжно)
+function smoothnessLoss(yPred) {
+    return tf.tidy(() => {
+        const data = yPred.dataSync(); // [1, SIZE*SIZE] или [SIZE,SIZE]? 
+        // yPred может быть [1, SIZE*SIZE] или [1, SIZE, SIZE, 1]. Приведём к плоскому массиву.
+        let flat;
+        if (yPred.shape.length === 4) {
+            flat = yPred.squeeze().dataSync();
+        } else {
+            flat = yPred.dataSync();
+        }
+        
+        let loss = 0;
+        // Горизонтальные разности
+        for (let y = 0; y < SIZE; y++) {
+            for (let x = 0; x < SIZE - 1; x++) {
+                const idx = y * SIZE + x;
+                const diff = flat[idx + 1] - flat[idx];
+                loss += diff * diff;
+            }
+        }
+        // Вертикальные разности
+        for (let y = 0; y < SIZE - 1; y++) {
+            for (let x = 0; x < SIZE; x++) {
+                const idx = y * SIZE + x;
+                const idx2 = (y + 1) * SIZE + x;
+                const diff = flat[idx2] - flat[idx];
+                loss += diff * diff;
+            }
+        }
+        const totalPairs = (SIZE * (SIZE - 1)) * 2; // горизонтальные + вертикальные
+        return tf.scalar(loss / totalPairs);
+    });
+}
+
+// Direction Loss (чем правее, тем ярче)
+function directionLoss(yPred) {
+    return tf.tidy(() => {
+        let flat;
+        if (yPred.shape.length === 4) {
+            flat = yPred.squeeze().dataSync();
+        } else {
+            flat = yPred.dataSync();
+        }
+        
+        let loss = 0;
+        for (let y = 0; y < SIZE; y++) {
+            for (let x = 0; x < SIZE; x++) {
+                // желаемое значение пропорционально x
+                const target = x / (SIZE - 1);
+                loss += (flat[y * SIZE + x] - target) ** 2;
+            }
+        }
+        return tf.scalar(loss / (SIZE * SIZE));
+    });
+}
+
+// ПОЛНАЯ ФУНКЦИЯ ПОТЕРЬ ДЛЯ СТУДЕНТА (как в лекции)
+function studentLoss(yTrue, yPred) {
+    return tf.tidy(() => {
+        const sorted = sortedMSELoss(yTrue, yPred);
+        const smooth = smoothnessLoss(yPred);
+        const dir = directionLoss(yPred);
+        
+        // Коэффициенты можно подбирать
+        return sorted
+            .add(smooth.mul(0.1))
+            .add(dir.mul(0.05));
+    });
+}
+
+// ==================== МОДЕЛИ ====================
+
+// Baseline: простая полносвязная (MSE)
+function createBaselineModel() {
+    const model = tf.sequential();
+    model.add(tf.layers.dense({
+        inputShape: [SIZE * SIZE],
+        units: SIZE * SIZE,
+        activation: 'sigmoid'
+    }));
+    model.compile({
+        optimizer: tf.train.adam(0.01),
+        loss: 'meanSquaredError'
+    });
+    return model;
+}
+
+// Student: тоже полносвязная, но с кастомной loss
+function createStudentModel() {
+    const model = tf.sequential();
+    model.add(tf.layers.dense({
+        inputShape: [SIZE * SIZE],
+        units: 128,
+        activation: 'relu'
+    }));
+    model.add(tf.layers.dense({
+        units: SIZE * SIZE,
+        activation: 'sigmoid'
+    }));
+    return model;
 }
 
 // ==================== ОБУЧЕНИЕ ====================
 async function trainStep() {
     if (!inputTensor || !baselineModel || !studentModel) return;
-    
+
     try {
-        // Baseline
+        // Baseline обучается на MSE
         await baselineModel.fit(inputTensor, inputTensor, {
             epochs: 1,
             verbose: 0
         });
+
+        // Student обучается через оптимизатор с нашей кастомной loss
+        if (!studentOptimizer) studentOptimizer = tf.train.adam(0.01);
         
-        // Student
-        const optimizer = tf.train.adam(0.01);
-        optimizer.minimize(() => {
+        studentOptimizer.minimize(() => {
             const pred = studentModel.apply(inputTensor, true);
-            return studentLoss(inputTensor, pred);
+            const loss = studentLoss(inputTensor, pred);
+            return loss;
         });
-        
+
         step++;
         
+        // Обновляем экран каждые 5 шагов
         if (step % 5 === 0) {
             updateDisplays();
             log(`Step ${step}`);
         }
     } catch (e) {
-        log('Error: ' + e.message);
+        log(`Error: ${e.message}`);
+        console.error(e);
     }
 }
 
-// ==================== ЛОГ ====================
-function log(msg) {
-    const time = new Date().toLocaleTimeString();
-    logDiv.innerHTML += `<div>[${time}] ${msg}</div>`;
-    logDiv.scrollTop = logDiv.scrollHeight;
+function updateDisplays() {
+    tf.tidy(() => {
+        const baselinePred = baselineModel.predict(inputTensor);
+        const studentPred = studentModel.predict(inputTensor);
+
+        // Для визуализации преобразуем в изображение SIZE x SIZE
+        drawTensor(inputTensor, inputCanvas);
+        drawTensor(baselinePred, baselineCanvas);
+        drawTensor(studentPred, studentCanvas);
+
+        // Покажем значения loss (для информации)
+        const baselineLoss = mseLoss(inputTensor, baselinePred).dataSync()[0];
+        const sLoss = studentLoss(inputTensor, studentPred).dataSync()[0];
+        baselineLossDiv.textContent = baselineLoss.toFixed(6);
+        studentLossDiv.textContent = sLoss.toFixed(6);
+    });
 }
 
 // ==================== ИНИЦИАЛИЗАЦИЯ ====================
 function init() {
     log('Initializing...');
-    
-    // Создаем входной шум
+
+    // Случайный шум [0,1]
     const data = new Float32Array(SIZE * SIZE);
-    for (let i = 0; i < SIZE * SIZE; i++) {
+    for (let i = 0; i < data.length; i++) {
         data[i] = Math.random();
     }
     inputTensor = tf.tensor2d(data, [1, SIZE * SIZE]);
-    
-    drawTensor(inputTensor.reshape([SIZE, SIZE]), inputCanvas);
-    
+
     baselineModel = createBaselineModel();
     studentModel = createStudentModel();
-    
+    studentOptimizer = tf.train.adam(0.01);
+
     step = 0;
     updateDisplays();
-    
-    log('Ready! Press Train');
+    log('Ready. Press "Train 1 Step" or "Auto Train".');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
@@ -217,11 +255,11 @@ autoBtn.addEventListener('click', () => {
     autoBtn.className = autoTraining ? 'stop' : '';
     
     if (autoTraining) {
-        log('Auto start');
-        autoTimer = setInterval(trainStep, 100);
+        log('Auto training started');
+        autoTimer = setInterval(trainStep, 50);
     } else {
         clearInterval(autoTimer);
-        log('Stop');
+        log('Auto training stopped');
     }
 });
 
@@ -233,23 +271,21 @@ resetBtn.addEventListener('click', () => {
         autoBtn.className = '';
     }
     
-    tf.dispose([baselineModel, studentModel, inputTensor]);
+    tf.dispose([baselineModel, studentModel, inputTensor, studentOptimizer]);
     
     const data = new Float32Array(SIZE * SIZE);
-    for (let i = 0; i < SIZE * SIZE; i++) {
+    for (let i = 0; i < data.length; i++) {
         data[i] = Math.random();
     }
     inputTensor = tf.tensor2d(data, [1, SIZE * SIZE]);
     
-    drawTensor(inputTensor.reshape([SIZE, SIZE]), inputCanvas);
-    
     baselineModel = createBaselineModel();
     studentModel = createStudentModel();
+    studentOptimizer = tf.train.adam(0.01);
     
     step = 0;
     updateDisplays();
-    
-    log('Reset');
+    log('Reset done');
 });
 
 // ==================== СТАРТ ====================
