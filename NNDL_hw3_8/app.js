@@ -41,7 +41,7 @@ function drawTensor(tensor, canvas) {
         for (let x = 0; x < SIZE; x++) {
             const val = data[y * SIZE + x];
             const bright = Math.floor(val * 255);
-            // Зеленые оттенки: R=0, G=bright, B=0
+            // Зеленые оттенки
             ctx.fillStyle = `rgb(0, ${bright}, 0)`;
             ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
         }
@@ -50,21 +50,25 @@ function drawTensor(tensor, canvas) {
 
 // ==================== ФУНКЦИИ ПОТЕРЬ ====================
 
+// Обычная MSE (для baseline)
 function mseLoss(yTrue, yPred) {
     return tf.mean(tf.square(tf.sub(yTrue, yPred)));
 }
 
+// Sorted MSE – сравниваем отсортированные пиксели (разрешает перестановку)
 function sortedMSELoss(yTrue, yPred) {
     return tf.tidy(() => {
         const yTrueFlat = yTrue.reshape([-1]);
         const yPredFlat = yPred.reshape([-1]);
         const k = SIZE * SIZE;
+        // Сортируем по возрастанию через отрицание
         const yTrueSorted = tf.topk(yTrueFlat.neg(), k).values.neg();
         const yPredSorted = tf.topk(yPredFlat.neg(), k).values.neg();
         return tf.mean(tf.square(tf.sub(yTrueSorted, yPredSorted)));
     });
 }
 
+// Smoothness – штраф за резкие перепады (total variation)
 function smoothnessLoss(yPred) {
     return tf.tidy(() => {
         let flat;
@@ -75,6 +79,7 @@ function smoothnessLoss(yPred) {
         }
         
         let loss = 0;
+        // горизонтальные разности
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE - 1; x++) {
                 const idx = y * SIZE + x;
@@ -82,6 +87,7 @@ function smoothnessLoss(yPred) {
                 loss += diff * diff;
             }
         }
+        // вертикальные разности
         for (let y = 0; y < SIZE - 1; y++) {
             for (let x = 0; x < SIZE; x++) {
                 const idx = y * SIZE + x;
@@ -95,36 +101,21 @@ function smoothnessLoss(yPred) {
     });
 }
 
+// Direction Loss – поощряет градиент слева направо (маска от 0 до 1)
 function directionLoss(yPred) {
     return tf.tidy(() => {
-        let flat;
-        if (yPred.shape.length === 4) {
-            flat = yPred.squeeze().dataSync();
-        } else {
-            flat = yPred.dataSync();
-        }
-        
-        // Считаем среднюю яркость по каждой колонке
-        let colMeans = new Array(SIZE).fill(0);
-        for (let y = 0; y < SIZE; y++) {
-            for (let x = 0; x < SIZE; x++) {
-                colMeans[x] += flat[y * SIZE + x];
+        const [batch, height, width] = yPred.shape;
+        // Создаём маску: значения растут с x
+        const mask = [];
+        for (let i = 0; i < height; i++) {
+            for (let j = 0; j < width; j++) {
+                mask.push(j / (width - 1));
             }
         }
-        for (let x = 0; x < SIZE; x++) {
-            colMeans[x] /= SIZE;
-        }
-        
-        // Хотим, чтобы средние яркости росли слева направо
-        let loss = 0;
-        for (let x = 0; x < SIZE - 1; x++) {
-            // если следующая колонка темнее предыдущей - штраф
-            if (colMeans[x + 1] < colMeans[x]) {
-                loss += (colMeans[x] - colMeans[x + 1]) * 10;
-            }
-        }
-        
-        return tf.scalar(loss);
+        const maskTensor = tf.tensor(mask).reshape([1, height, width]);
+        // Поощряем совпадение: чем больше среднее произведение, тем меньше loss
+        // Используем отрицательный знак, так как минимизируем
+        return tf.neg(tf.mean(tf.mul(yPred, maskTensor)));
     });
 }
 
@@ -135,18 +126,20 @@ function studentLoss(yTrue, yPred) {
         const smooth = smoothnessLoss(yPred);
         const dir = directionLoss(yPred);
         
-        // sorted важнее всего - сохраняет цвета
-        // smooth сглаживает
-        // dir создает тренд
+        // КЛЮЧЕВЫЕ КОЭФФИЦИЕНТЫ:
+        // sorted очень маленький – разрешаем менять цвета,
+        // smooth средний – убираем шум,
+        // direction большой – заставляем пиксели выстраиваться в градиент.
         return sorted
-            .mul(1.0)
+            .mul(0.001)
             .add(smooth.mul(0.05))
-            .add(dir.mul(0.02));
+            .add(dir.mul(1.0));
     });
 }
 
 // ==================== МОДЕЛИ ====================
 
+// Baseline – просто копирует вход (MSE)
 function createBaselineModel() {
     const model = tf.sequential();
     model.add(tf.layers.dense({
@@ -161,15 +154,16 @@ function createBaselineModel() {
     return model;
 }
 
+// Student – достаточно мощная, чтобы переставлять пиксели
 function createStudentModel() {
     const model = tf.sequential();
     model.add(tf.layers.dense({
         inputShape: [SIZE * SIZE],
-        units: 128,
+        units: 256,
         activation: 'relu'
     }));
     model.add(tf.layers.dense({
-        units: 128,
+        units: 256,
         activation: 'relu'
     }));
     model.add(tf.layers.dense({
@@ -184,11 +178,13 @@ async function trainStep() {
     if (!inputTensor || !baselineModel || !studentModel) return;
 
     try {
+        // Baseline обучается на MSE
         await baselineModel.fit(inputTensor, inputTensor, {
             epochs: 1,
             verbose: 0
         });
 
+        // Student обучается с нашей кастомной loss
         if (!studentOptimizer) studentOptimizer = tf.train.adam(0.01);
         
         studentOptimizer.minimize(() => {
@@ -243,7 +239,7 @@ function init() {
     step = 0;
     updateDisplays();
     log('Ready. Press "Train 1 Step" or "Auto Train".');
-    log('Зеленые оттенки, SortedMSE=1.0 Smooth=0.05 Direction=0.02');
+    log('Sorted=0.001, Smooth=0.05, Direction=1.0');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
@@ -256,7 +252,7 @@ autoBtn.addEventListener('click', () => {
     
     if (autoTraining) {
         log('Auto training started');
-        autoTimer = setInterval(trainStep, 50);
+        autoTimer = setInterval(trainStep, 30); // быстрее
     } else {
         clearInterval(autoTimer);
         log('Auto training stopped');
