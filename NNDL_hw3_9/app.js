@@ -6,7 +6,7 @@ let autoTimer = null;
 let isTraining = false;
 
 // ==================== МОДЕЛИ ====================
-let baselineModel, studentModel, inputTensor, studentOptimizer;
+let studentModel, inputTensor, studentOptimizer;
 
 // ==================== DOM ЭЛЕМЕНТЫ ====================
 const inputCanvas = document.getElementById('inputCanvas');
@@ -44,7 +44,7 @@ function drawTensor(tensor, canvas) {
 }
 
 // ==================== ФУНКЦИИ ПОТЕРЬ ====================
-
+// Без TopK, без сортировки. Только гладкость и направление.
 function mseLoss(yTrue, yPred) {
     return tf.mean(tf.square(tf.sub(yTrue, yPred)));
 }
@@ -81,8 +81,9 @@ function directionLoss(yPred) {
             for (let x = 0; x < SIZE - 1; x++) {
                 const idx = y * SIZE + x;
                 const diff = flat[idx + 1] - flat[idx];
+                // Если следующий пиксель темнее предыдущего – штраф
                 if (diff < 0) {
-                    loss -= diff;
+                    loss -= diff; // так как diff отрицательный, -diff положительный
                 }
             }
         }
@@ -96,29 +97,18 @@ function studentLoss(yTrue, yPred) {
         const smooth = smoothnessLoss(yPred);
         const dir = directionLoss(yPred);
         
+        // Баланс: mse маленький – разрешаем менять цвета,
+        // smooth – убирает резкость,
+        // dir – большой, чтобы создать градиент.
         return mse
             .mul(0.01)
             .add(smooth.mul(0.1))
-            .add(dir.mul(10.0));
+            .add(dir.mul(20.0));
     });
 }
 
 // ==================== МОДЕЛИ ====================
-
-function createBaselineModel() {
-    const model = tf.sequential();
-    model.add(tf.layers.dense({
-        inputShape: [SIZE * SIZE],
-        units: SIZE * SIZE,
-        activation: 'sigmoid'
-    }));
-    model.compile({
-        optimizer: tf.train.adam(0.01),
-        loss: 'meanSquaredError'
-    });
-    return model;
-}
-
+// Убираем baseline модель полностью. Оставляем только студента.
 function createStudentModel() {
     const model = tf.sequential();
     model.add(tf.layers.dense({
@@ -139,16 +129,11 @@ function createStudentModel() {
 
 // ==================== ОБУЧЕНИЕ ====================
 async function trainStep() {
-    if (!inputTensor || !baselineModel || !studentModel) return;
+    if (!inputTensor || !studentModel) return;
     if (isTraining) return;
 
     isTraining = true;
     try {
-        await baselineModel.fit(inputTensor, inputTensor, {
-            epochs: 1,
-            verbose: 0
-        });
-
         if (!studentOptimizer) studentOptimizer = tf.train.adam(0.01);
         
         studentOptimizer.minimize(() => {
@@ -173,16 +158,15 @@ async function trainStep() {
 
 function updateDisplays() {
     tf.tidy(() => {
-        const baselinePred = baselineModel.predict(inputTensor);
         const studentPred = studentModel.predict(inputTensor);
 
         drawTensor(inputTensor, inputCanvas);
-        drawTensor(baselinePred, baselineCanvas);
         drawTensor(studentPred, studentCanvas);
+        // Для baseline просто показываем тот же input (или можно оставить пустым)
+        drawTensor(inputTensor, baselineCanvas);
 
-        const baselineLoss = mseLoss(inputTensor, baselinePred).dataSync()[0];
         const sLoss = studentLoss(inputTensor, studentPred).dataSync()[0];
-        baselineLossDiv.textContent = baselineLoss.toFixed(6);
+        baselineLossDiv.textContent = '0.000000'; // baseline не обучается
         studentLossDiv.textContent = sLoss.toFixed(6);
     });
 }
@@ -197,14 +181,13 @@ function init() {
     }
     inputTensor = tf.tensor2d(data, [1, SIZE * SIZE]);
 
-    baselineModel = createBaselineModel();
     studentModel = createStudentModel();
     studentOptimizer = tf.train.adam(0.01);
 
     step = 0;
     updateDisplays();
     log('Ready. Press "Train 1 Step" or "Auto Train".');
-    log('MSE=0.01, Smooth=0.1, Direction=10.0');
+    log('MSE=0.01, Smooth=0.1, Direction=20.0 (без сортировки)');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
@@ -219,7 +202,7 @@ autoBtn.addEventListener('click', () => {
         log('Auto training started');
         autoTimer = setInterval(() => {
             trainStep();
-        }, 100);
+        }, 300); // интервал 300 мс, чтобы избежать пересечений
     } else {
         clearInterval(autoTimer);
         log('Auto training stopped');
@@ -234,7 +217,7 @@ resetBtn.addEventListener('click', () => {
         autoBtn.className = '';
     }
     
-    tf.dispose([baselineModel, studentModel, inputTensor, studentOptimizer]);
+    tf.dispose([studentModel, inputTensor, studentOptimizer]);
     
     const data = new Float32Array(SIZE * SIZE);
     for (let i = 0; i < data.length; i++) {
@@ -242,7 +225,6 @@ resetBtn.addEventListener('click', () => {
     }
     inputTensor = tf.tensor2d(data, [1, SIZE * SIZE]);
     
-    baselineModel = createBaselineModel();
     studentModel = createStudentModel();
     studentOptimizer = tf.train.adam(0.01);
     
