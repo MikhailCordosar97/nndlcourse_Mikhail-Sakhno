@@ -121,6 +121,12 @@ function createBaselineModel() {
         activation: 'sigmoid'
     }));
     
+    // КОМПИЛИРУЕМ baseline модель с MSE loss
+    model.compile({
+        optimizer: 'adam',
+        loss: 'meanSquaredError'
+    });
+    
     return model;
 }
 
@@ -211,6 +217,8 @@ function createStudentModel(archType) {
         activation: 'sigmoid'
     }));
     
+    // НЕ компилируем студенческую модель - будем использовать custom training loop
+    
     return model;
 }
 
@@ -229,6 +237,12 @@ async function init() {
     // Создаем модели
     baselineModel = createBaselineModel();
     studentModel = createStudentModel('compression');
+    
+    // Инициализируем веса, сделав один проход
+    tf.tidy(() => {
+        baselineModel.predict(inputTensor);
+        studentModel.predict(inputTensor);
+    });
     
     // Оптимизатор для кастомного обучения
     optimizer = tf.train.adam(0.01);
@@ -250,18 +264,19 @@ async function trainStep() {
     }
     
     try {
-        // Baseline обучение
+        // Baseline обучение - используем model.fit
         await baselineModel.fit(inputTensor, inputTensor, {
             epochs: 1,
-            verbose: 0
+            verbose: 0,
+            batchSize: 1
         });
         
         // Student обучение с кастомной функцией потерь
-        optimizer.minimize(() => {
+        const studentLossValue = optimizer.minimize(() => {
             const pred = studentModel.apply(inputTensor, { training: true });
             const loss = computeStudentLoss(inputTensor, pred);
             return loss;
-        });
+        }, true);
         
         step++;
         stepSpan.textContent = step;
@@ -269,8 +284,8 @@ async function trainStep() {
         // Обновляем дисплей
         await updateDisplays();
         
-        if (step % 10 === 0) {
-            log(`Step ${step} completed`);
+        if (step % 5 === 0) {
+            log(`Step ${step} completed (Student loss: ${studentLossValue?.dataSync()[0].toFixed(6) || 'N/A'})`);
         }
     } catch (error) {
         log(`❌ Error: ${error.message}`);
@@ -280,41 +295,25 @@ async function trainStep() {
 
 // ==================== Визуализация ====================
 async function drawTensorToCanvas(tensor, canvas) {
-    return new Promise((resolve) => {
-        tf.tidy(() => {
-            const data = tensor.squeeze().dataSync();
-            const ctx = canvas.getContext('2d');
-            const width = canvas.width;
-            const height = canvas.height;
-            const cellSize = width / IMG_SIZE;
-            
-            // Создаем ImageData для более быстрой отрисовки
-            const imageData = ctx.createImageData(width, height);
-            
-            for (let y = 0; y < IMG_SIZE; y++) {
-                for (let x = 0; x < IMG_SIZE; x++) {
-                    const value = data[y * IMG_SIZE + x];
-                    const brightness = Math.floor(value * 255);
-                    
-                    // Заполняем пиксель (увеличиваем для четкости)
-                    for (let dy = 0; dy < cellSize; dy++) {
-                        for (let dx = 0; dx < cellSize; dx++) {
-                            const px = x * cellSize + dx;
-                            const py = y * cellSize + dy;
-                            const index = (py * width + px) * 4;
-                            
-                            imageData.data[index] = brightness;     // R
-                            imageData.data[index + 1] = brightness; // G
-                            imageData.data[index + 2] = brightness; // B
-                            imageData.data[index + 3] = 255;        // A
-                        }
-                    }
-                }
+    return tf.tidy(() => {
+        const data = tensor.squeeze().dataSync();
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const cellSize = width / IMG_SIZE;
+        
+        // Очищаем канвас
+        ctx.clearRect(0, 0, width, height);
+        
+        // Рисуем пиксели
+        for (let y = 0; y < IMG_SIZE; y++) {
+            for (let x = 0; x < IMG_SIZE; x++) {
+                const value = data[y * IMG_SIZE + x];
+                const brightness = Math.floor(value * 255);
+                ctx.fillStyle = `rgb(${brightness}, ${brightness}, ${brightness})`;
+                ctx.fillRect(x * cellSize, y * cellSize, cellSize - 1, cellSize - 1);
             }
-            
-            ctx.putImageData(imageData, 0, 0);
-            resolve();
-        });
+        }
     });
 }
 
@@ -330,7 +329,7 @@ async function updateDisplays() {
         const baselineLossVal = mse(inputTensor, baselinePred).dataSync()[0];
         const studentLossVal = computeStudentLoss(inputTensor, studentPred).dataSync()[0];
         
-        // Обновляем канвасы (асинхронно)
+        // Обновляем канвасы
         drawTensorToCanvas(baselinePred, baselineCanvas);
         drawTensorToCanvas(studentPred, studentCanvas);
         
@@ -365,6 +364,12 @@ async function reset() {
     const selectedArch = Array.from(archRadios).find(r => r.checked).value;
     studentModel = createStudentModel(selectedArch);
     
+    // Инициализируем веса
+    tf.tidy(() => {
+        baselineModel.predict(inputTensor);
+        studentModel.predict(inputTensor);
+    });
+    
     // Пересоздаем оптимизатор
     optimizer = tf.train.adam(0.01);
     
@@ -388,10 +393,10 @@ function startAutoTrain() {
         
         await trainStep();
         
-        // Задержка для видимости процесса
+        // Небольшая задержка для видимости процесса
         setTimeout(() => {
             animationFrame = requestAnimationFrame(trainLoop);
-        }, 50);
+        }, 100);
     }
     
     animationFrame = requestAnimationFrame(trainLoop);
@@ -452,6 +457,11 @@ archRadios.forEach(radio => {
                     log('ℹ Started with fresh weights');
                 }
             }
+            
+            // Инициализируем
+            tf.tidy(() => {
+                studentModel.predict(inputTensor);
+            });
             
             await updateDisplays();
             log(`✅ Switched to ${e.target.value}`);
