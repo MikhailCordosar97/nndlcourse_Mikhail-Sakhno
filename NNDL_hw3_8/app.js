@@ -6,6 +6,7 @@ let autoTimer = null;
 
 // ==================== МОДЕЛИ ====================
 let baselineModel, studentModel, inputTensor;
+let studentOptimizer;
 
 // ==================== DOM ЭЛЕМЕНТЫ ====================
 const inputCanvas = document.getElementById('inputCanvas');
@@ -18,20 +19,22 @@ const trainBtn = document.getElementById('trainBtn');
 const autoBtn = document.getElementById('autoBtn');
 const resetBtn = document.getElementById('resetBtn');
 
-// ==================== ФУНКЦИИ ПОТЕРЬ ====================
+// ==================== ФУНКЦИИ ПОТЕРЬ ИЗ ЛЕКЦИИ ====================
+
+// Level 1: Обычная MSE (попиксельное сравнение) - приводит к копированию
 function mseLoss(yTrue, yPred) {
     return tf.mean(tf.square(tf.sub(yTrue, yPred)));
 }
 
-// ==================== ЭТО РЕШЕНИЕ ЗАДАЧИ ====================
-// Level 2: Sorted MSE - позволяет перемещать пиксели
+// Level 2: Sorted MSE (Quantile Loss / 1D Wasserstein)
+// КЛЮЧЕВАЯ ИДЕЯ: сравниваем ОТСОРТИРОВАННЫЕ пиксели
 function sortedMSELoss(yTrue, yPred) {
     return tf.tidy(() => {
-        // Расплющиваем в 1D массив
+        // Расплющиваем в 1D
         const yTrueFlat = yTrue.reshape([-1]);
         const yPredFlat = yPred.reshape([-1]);
         
-        // Сортируем (это позволяет пикселям менять позиции)
+        // СОРТИРУЕМ - это позволяет пикселям перемещаться
         const yTrueSorted = tf.topk(yTrueFlat, SIZE*SIZE).values;
         const yPredSorted = tf.topk(yPredFlat, SIZE*SIZE).values;
         
@@ -40,94 +43,127 @@ function sortedMSELoss(yTrue, yPred) {
     });
 }
 
-// Level 3: Smoothness - убирает резкие переходы
-function smoothnessLoss(y) {
+// Level 3: Smoothness (Total Variation Loss)
+// "Be locally consistent" - убирает резкие переходы
+function smoothnessLoss(yPred) {
     return tf.tidy(() => {
-        const [b, h, w, c] = y.shape;
+        // Разница между соседними пикселями по горизонтали
+        const left = yPred.slice([0, 0, 0, 0], [1, SIZE, SIZE-1, 1]);
+        const right = yPred.slice([0, 0, 1, 0], [1, SIZE, SIZE-1, 1]);
+        const horizontalDiff = tf.sub(left, right);
         
-        // Разница по горизонтали
-        const left = y.slice([0,0,0,0], [b, h, w-1, c]);
-        const right = y.slice([0,0,1,0], [b, h, w-1, c]);
-        const hDiff = tf.sub(left, right);
+        // Разница между соседними пикселями по вертикали
+        const top = yPred.slice([0, 0, 0, 0], [1, SIZE-1, SIZE, 1]);
+        const bottom = yPred.slice([0, 1, 0, 0], [1, SIZE-1, SIZE, 1]);
+        const verticalDiff = tf.sub(top, bottom);
         
-        // Разница по вертикали
-        const top = y.slice([0,0,0,0], [b, h-1, w, c]);
-        const bottom = y.slice([0,1,0,0], [b, h-1, w, c]);
-        const vDiff = tf.sub(top, bottom);
-        
+        // Сумма квадратов разниц
         return tf.add(
-            tf.mean(tf.square(hDiff)),
-            tf.mean(tf.square(vDiff))
+            tf.mean(tf.square(horizontalDiff)),
+            tf.mean(tf.square(verticalDiff))
         );
     });
 }
 
-// Level 3: Direction - создает градиент
-function directionLoss(y) {
+// Level 3: Direction Loss
+// "Be bright on the right" - поощряет градиент
+function directionLoss(yPred) {
     return tf.tidy(() => {
-        const [b, h, w, c] = y.shape;
+        // Создаем маску: слева темно (0), справа светло (1)
+        const mask = [];
+        for (let i = 0; i < SIZE; i++) {
+            const row = [];
+            for (let j = 0; j < SIZE; j++) {
+                row.push(j / SIZE); // значение растет слева направо
+            }
+            mask.push(row);
+        }
+        const maskTensor = tf.tensor(mask).reshape([1, SIZE, SIZE, 1]);
         
-        // Создаем маску: слева 0, справа 1
-        const mask = tf.tensor2d(
-            Array(h).fill(0).map((_, i) => 
-                Array(w).fill(0).map((_, j) => j / w)
-            ).flat(),
-            [h, w]
-        ).reshape([1, h, w, 1]);
-        
-        // Поощряем соответствие маске
-        return tf.neg(tf.mean(tf.mul(y, mask)));
+        // Чем больше совпадение с маской, тем меньше loss
+        return tf.neg(tf.mean(tf.mul(yPred, maskTensor)));
     });
 }
 
-// ПОЛНАЯ ФУНКЦИЯ ПОТЕРЬ - КАК В ЛЕКЦИИ
+// ПОЛНАЯ ФУНКЦИЯ ПОТЕРЬ КАК В ЛЕКЦИИ:
+// L_total = L_sortedMSE + λ1 * L_smooth + λ2 * L_dir
 function studentLoss(yTrue, yPred) {
     return tf.tidy(() => {
-        // Level 2: Sorted MSE - освобождает пиксели от позиций
         const sortedLoss = sortedMSELoss(yTrue, yPred);
-        
-        // Level 3: Smoothness - убирает шум
         const smoothLoss = smoothnessLoss(yPred);
-        
-        // Level 3: Direction - направляет пиксели
         const dirLoss = directionLoss(yPred);
         
-        // Комбинация как в лекции
+        // Коэффициенты из лекции (подобраны для градиента)
+        const lambda1 = 0.1; // Smoothness
+        const lambda2 = 0.05; // Direction
+        
         return sortedLoss
-            .add(smoothLoss.mul(0.1))
-            .add(dirLoss.mul(0.05));
+            .add(smoothLoss.mul(lambda1))
+            .add(dirLoss.mul(lambda2));
     });
 }
 
 // ==================== МОДЕЛИ ====================
+
+// Baseline модель (MSE only)
 function createBaselineModel() {
     const model = tf.sequential();
     
-    model.add(tf.layers.dense({
-        inputShape: [SIZE*SIZE],
-        units: SIZE*SIZE,
+    // Простая CNN как в лекции
+    model.add(tf.layers.conv2d({
+        inputShape: [SIZE, SIZE, 1],
+        filters: 16,
+        kernelSize: 3,
+        padding: 'same',
+        activation: 'relu'
+    }));
+    
+    model.add(tf.layers.conv2d({
+        filters: 16,
+        kernelSize: 3,
+        padding: 'same',
+        activation: 'relu'
+    }));
+    
+    model.add(tf.layers.conv2d({
+        filters: 1,
+        kernelSize: 3,
+        padding: 'same',
         activation: 'sigmoid'
     }));
     
     model.compile({
-        optimizer: 'adam',
+        optimizer: tf.train.adam(0.001),
         loss: 'meanSquaredError'
     });
     
     return model;
 }
 
+// Student модель (будет учиться с кастомной loss)
 function createStudentModel() {
     const model = tf.sequential();
     
-    model.add(tf.layers.dense({
-        inputShape: [SIZE*SIZE],
-        units: SIZE*SIZE * 2,
+    // Та же архитектура что и у baseline
+    model.add(tf.layers.conv2d({
+        inputShape: [SIZE, SIZE, 1],
+        filters: 16,
+        kernelSize: 3,
+        padding: 'same',
         activation: 'relu'
     }));
     
-    model.add(tf.layers.dense({
-        units: SIZE*SIZE,
+    model.add(tf.layers.conv2d({
+        filters: 16,
+        kernelSize: 3,
+        padding: 'same',
+        activation: 'relu'
+    }));
+    
+    model.add(tf.layers.conv2d({
+        filters: 1,
+        kernelSize: 3,
+        padding: 'same',
         activation: 'sigmoid'
     }));
     
@@ -136,7 +172,7 @@ function createStudentModel() {
 
 // ==================== ВИЗУАЛИЗАЦИЯ ====================
 function drawTensor(tensor, canvas) {
-    const data = tensor.dataSync();
+    const data = tensor.squeeze().arraySync();
     const ctx = canvas.getContext('2d');
     const size = canvas.width;
     const cellSize = size / SIZE;
@@ -145,7 +181,7 @@ function drawTensor(tensor, canvas) {
     
     for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
-            const val = data[y * SIZE + x];
+            const val = data[y][x];
             const bright = Math.floor(val * 255);
             ctx.fillStyle = `rgb(${bright}, ${bright}, ${bright})`;
             ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
@@ -156,19 +192,19 @@ function drawTensor(tensor, canvas) {
 function updateDisplays() {
     if (!inputTensor || !baselineModel || !studentModel) return;
     
-    const baselinePred = baselineModel.predict(inputTensor);
-    const studentPred = studentModel.predict(inputTensor);
-    
-    const baselineLoss = mseLoss(inputTensor, baselinePred).dataSync()[0];
-    const sLoss = studentLoss(inputTensor, studentPred).dataSync()[0];
-    
-    drawTensor(baselinePred, baselineCanvas);
-    drawTensor(studentPred, studentCanvas);
-    
-    baselineLossDiv.textContent = baselineLoss.toFixed(6);
-    studentLossDiv.textContent = sLoss.toFixed(6);
-    
-    tf.dispose([baselinePred, studentPred]);
+    tf.tidy(() => {
+        const baselinePred = baselineModel.predict(inputTensor);
+        const studentPred = studentModel.predict(inputTensor);
+        
+        const baselineLoss = mseLoss(inputTensor, baselinePred).dataSync()[0];
+        const sLoss = studentLoss(inputTensor, studentPred).dataSync()[0];
+        
+        drawTensor(baselinePred, baselineCanvas);
+        drawTensor(studentPred, studentCanvas);
+        
+        baselineLossDiv.textContent = baselineLoss.toFixed(6);
+        studentLossDiv.textContent = sLoss.toFixed(6);
+    });
 }
 
 // ==================== ОБУЧЕНИЕ ====================
@@ -176,15 +212,18 @@ async function trainStep() {
     if (!inputTensor || !baselineModel || !studentModel) return;
     
     try {
-        // Baseline обучение
+        // Baseline обучение (MSE)
         await baselineModel.fit(inputTensor, inputTensor, {
             epochs: 1,
             verbose: 0
         });
         
-        // Student обучение
-        const optimizer = tf.train.adam(0.01);
-        optimizer.minimize(() => {
+        // Student обучение (кастомная loss)
+        if (!studentOptimizer) {
+            studentOptimizer = tf.train.adam(0.001);
+        }
+        
+        studentOptimizer.minimize(() => {
             const pred = studentModel.apply(inputTensor, true);
             const loss = studentLoss(inputTensor, pred);
             return loss;
@@ -213,23 +252,20 @@ function init() {
     log('Initializing...');
     
     // Создаем входной шум
-    const randomData = new Float32Array(SIZE*SIZE);
-    for (let i = 0; i < SIZE*SIZE; i++) {
-        randomData[i] = Math.random();
-    }
-    inputTensor = tf.tensor2d(randomData, [1, SIZE*SIZE]);
-    
-    drawTensor(inputTensor.reshape([SIZE, SIZE]), inputCanvas);
+    inputTensor = tf.randomUniform([1, SIZE, SIZE, 1], 0, 1);
+    drawTensor(inputTensor, inputCanvas);
     
     // Создаем модели
     baselineModel = createBaselineModel();
     studentModel = createStudentModel();
+    studentOptimizer = tf.train.adam(0.001);
     
     step = 0;
     updateDisplays();
     
-    log('ГОТОВО! Нажми "Auto Train"');
-    log('Sorted MSE + Smoothness + Direction = Градиент');
+    log('ГОТОВО! Нажми Auto Train');
+    log('Sorted MSE освобождает пиксели от позиций');
+    log('Smoothness + Direction направляют их в градиент');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
@@ -246,7 +282,7 @@ autoBtn.addEventListener('click', () => {
         log('▶ Auto training');
         autoTimer = setInterval(async () => {
             await trainStep();
-        }, 100);
+        }, 50);
     } else {
         clearInterval(autoTimer);
         log('⏸ Stopped');
@@ -263,16 +299,12 @@ resetBtn.addEventListener('click', () => {
     
     tf.dispose([baselineModel, studentModel, inputTensor]);
     
-    const randomData = new Float32Array(SIZE*SIZE);
-    for (let i = 0; i < SIZE*SIZE; i++) {
-        randomData[i] = Math.random();
-    }
-    inputTensor = tf.tensor2d(randomData, [1, SIZE*SIZE]);
-    
-    drawTensor(inputTensor.reshape([SIZE, SIZE]), inputCanvas);
+    inputTensor = tf.randomUniform([1, SIZE, SIZE, 1], 0, 1);
+    drawTensor(inputTensor, inputCanvas);
     
     baselineModel = createBaselineModel();
     studentModel = createStudentModel();
+    studentOptimizer = tf.train.adam(0.001);
     
     step = 0;
     updateDisplays();
