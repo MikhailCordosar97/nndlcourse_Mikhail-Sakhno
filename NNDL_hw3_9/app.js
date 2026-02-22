@@ -3,7 +3,7 @@ const SIZE = 16;
 let step = 0;
 let autoTraining = false;
 let autoTimer = null;
-let isTraining = false; // Флаг, чтобы не запускать несколько тренировок одновременно
+let isTraining = false;
 
 // ==================== МОДЕЛИ ====================
 let baselineModel, studentModel, inputTensor, studentOptimizer;
@@ -27,7 +27,6 @@ function log(msg) {
 }
 
 function drawTensor(tensor, canvas) {
-    // tensor имеет форму [1, 256]
     const data = tensor.dataSync();
     const ctx = canvas.getContext('2d');
     const size = canvas.width;
@@ -50,13 +49,10 @@ function mseLoss(yTrue, yPred) {
     return tf.mean(tf.square(tf.sub(yTrue, yPred)));
 }
 
-// Больше никакого topk! Просто гладкость и направление.
 function smoothnessLoss(yPred) {
-    // yPred форма [1, 256]
     return tf.tidy(() => {
         const flat = yPred.dataSync();
         let loss = 0;
-        // горизонтальные разности
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE - 1; x++) {
                 const idx = y * SIZE + x;
@@ -64,7 +60,6 @@ function smoothnessLoss(yPred) {
                 loss += diff * diff;
             }
         }
-        // вертикальные разности
         for (let y = 0; y < SIZE - 1; y++) {
             for (let x = 0; x < SIZE; x++) {
                 const idx = y * SIZE + x;
@@ -79,33 +74,32 @@ function smoothnessLoss(yPred) {
 }
 
 function directionLoss(yPred) {
-    // yPred форма [1, 256]
     return tf.tidy(() => {
-        // Маска: значение = x / (SIZE-1)
-        const maskData = new Float32Array(SIZE * SIZE);
+        const flat = yPred.dataSync();
+        let loss = 0;
         for (let y = 0; y < SIZE; y++) {
-            for (let x = 0; x < SIZE; x++) {
-                maskData[y * SIZE + x] = x / (SIZE - 1);
+            for (let x = 0; x < SIZE - 1; x++) {
+                const idx = y * SIZE + x;
+                const diff = flat[idx + 1] - flat[idx];
+                if (diff < 0) {
+                    loss -= diff;
+                }
             }
         }
-        const mask = tf.tensor(maskData, [1, SIZE * SIZE]);
-        // Чем больше совпадение с маской, тем меньше loss (отрицание)
-        return tf.neg(tf.mean(tf.mul(yPred, mask)));
+        return tf.scalar(loss / (SIZE * (SIZE - 1)));
     });
 }
 
-// ==================== ГЛАВНАЯ ФУНКЦИЯ ПОТЕРЬ ====================
 function studentLoss(yTrue, yPred) {
     return tf.tidy(() => {
         const mse = mseLoss(yTrue, yPred);
         const smooth = smoothnessLoss(yPred);
         const dir = directionLoss(yPred);
         
-        // Коэффициенты: MSE маленький (разрешаем менять цвета), направление большое
         return mse
             .mul(0.01)
             .add(smooth.mul(0.1))
-            .add(dir.mul(2.0));
+            .add(dir.mul(10.0));
     });
 }
 
@@ -146,17 +140,15 @@ function createStudentModel() {
 // ==================== ОБУЧЕНИЕ ====================
 async function trainStep() {
     if (!inputTensor || !baselineModel || !studentModel) return;
-    if (isTraining) return; // пропускаем, если предыдущий шаг ещё не завершён
+    if (isTraining) return;
 
     isTraining = true;
     try {
-        // Обучаем baseline (MSE)
         await baselineModel.fit(inputTensor, inputTensor, {
             epochs: 1,
             verbose: 0
         });
 
-        // Обучаем student с кастомной loss
         if (!studentOptimizer) studentOptimizer = tf.train.adam(0.01);
         
         studentOptimizer.minimize(() => {
@@ -212,7 +204,7 @@ function init() {
     step = 0;
     updateDisplays();
     log('Ready. Press "Train 1 Step" or "Auto Train".');
-    log('MSE=0.01, Smooth=0.1, Direction=2.0 (без сортировки)');
+    log('MSE=0.01, Smooth=0.1, Direction=10.0');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
@@ -227,7 +219,7 @@ autoBtn.addEventListener('click', () => {
         log('Auto training started');
         autoTimer = setInterval(() => {
             trainStep();
-        }, 100); // интервал увеличен до 100 мс, чтобы избежать пересечения
+        }, 100);
     } else {
         clearInterval(autoTimer);
         log('Auto training stopped');
