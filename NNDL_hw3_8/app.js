@@ -6,6 +6,7 @@ let autoTimer = null;
 
 // ==================== МОДЕЛИ ====================
 let baselineModel, studentModel, inputTensor;
+let studentOptimizer;
 
 // ==================== DOM ЭЛЕМЕНТЫ ====================
 const inputCanvas = document.getElementById('inputCanvas');
@@ -48,23 +49,41 @@ function directionLoss(y) {
     return tf.tidy(() => {
         const [b, h, w, c] = y.shape;
         
-        // Маска: значения растут слева направо
-        const mask = tf.tensor2d(
-            Array(h).fill(Array(w).fill(0).map((_, i) => i / w)).flat(),
-            [h, w]
-        ).reshape([1, h, w, 1]);
+        // Маска: значения растут слева направо (0 -> 1)
+        let maskData = [];
+        for (let i = 0; i < h; i++) {
+            for (let j = 0; j < w; j++) {
+                maskData.push(j / w);
+            }
+        }
+        const mask = tf.tensor2d(maskData, [h, w]).reshape([1, h, w, 1]);
         
+        // Чем больше совпадение с маской, тем меньше loss
         return tf.neg(tf.mean(tf.mul(y, mask)));
     });
 }
 
+// ==================== КЛЮЧЕВАЯ ФУНКЦИЯ - РЕШЕНИЕ ЗАДАЧИ ====================
 function studentLoss(yTrue, yPred) {
     return tf.tidy(() => {
+        // 1. MSE - сохраняет распределение цветов
         const mse = mseLoss(yTrue, yPred);
+        
+        // 2. Smoothness - делает переходы плавными
         const smooth = smoothnessLoss(yPred);
+        
+        // 3. Direction - создает градиент слева направо
         const dir = directionLoss(yPred);
         
-        return mse.add(smooth.mul(0.2)).add(dir.mul(0.1));
+        // Баланс коэффициентов: 
+        // - MSE почти не влияет (0.05)
+        // - Smoothness сильно влияет (5.0) - убирает шум
+        // - Direction очень сильно влияет (10.0) - создает градиент
+        const total = mse.mul(0.05)
+                       .add(smooth.mul(5.0))
+                       .add(dir.mul(10.0));
+        
+        return total;
     });
 }
 
@@ -74,14 +93,14 @@ function createBaselineModel() {
     
     model.add(tf.layers.conv2d({
         inputShape: [SIZE, SIZE, 1],
-        filters: 8,
+        filters: 16,
         kernelSize: 3,
         padding: 'same',
         activation: 'relu'
     }));
     
     model.add(tf.layers.conv2d({
-        filters: 8,
+        filters: 16,
         kernelSize: 3,
         padding: 'same',
         activation: 'relu'
@@ -95,7 +114,7 @@ function createBaselineModel() {
     }));
     
     model.compile({
-        optimizer: 'adam',
+        optimizer: tf.train.adam(0.01),
         loss: 'meanSquaredError'
     });
     
@@ -107,14 +126,21 @@ function createStudentModel() {
     
     model.add(tf.layers.conv2d({
         inputShape: [SIZE, SIZE, 1],
-        filters: 8,
+        filters: 32,
         kernelSize: 3,
         padding: 'same',
         activation: 'relu'
     }));
     
     model.add(tf.layers.conv2d({
-        filters: 8,
+        filters: 32,
+        kernelSize: 3,
+        padding: 'same',
+        activation: 'relu'
+    }));
+    
+    model.add(tf.layers.conv2d({
+        filters: 32,
         kernelSize: 3,
         padding: 'same',
         activation: 'relu'
@@ -182,10 +208,14 @@ async function trainStep() {
             batchSize: 1
         });
         
-        // Student обучение
-        const optimizer = tf.train.adam(0.01);
-        optimizer.minimize(() => {
-            const pred = studentModel.apply(inputTensor, true);
+        // Student обучение - создаем оптимизатор если нужно
+        if (!studentOptimizer) {
+            studentOptimizer = tf.train.adam(0.02);
+        }
+        
+        // Один шаг оптимизации
+        studentOptimizer.minimize(() => {
+            const pred = studentModel.apply(inputTensor, { training: true });
             const loss = studentLoss(inputTensor, pred);
             return loss;
         });
@@ -219,6 +249,7 @@ function init() {
     // Создаем модели
     baselineModel = createBaselineModel();
     studentModel = createStudentModel();
+    studentOptimizer = tf.train.adam(0.02);
     
     // Инициализируем веса одним проходом
     baselineModel.predict(inputTensor);
@@ -227,7 +258,8 @@ function init() {
     step = 0;
     updateDisplays();
     
-    log('Ready! Click "Train 1 Step"');
+    log('ГОТОВО! Нажми "Auto Train" и наблюдай за градиентом');
+    log('Student использует: MSE*0.05 + Smoothness*5.0 + Direction*10.0');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
@@ -237,17 +269,17 @@ trainBtn.addEventListener('click', async () => {
 
 autoBtn.addEventListener('click', () => {
     autoTraining = !autoTraining;
-    autoBtn.textContent = autoTraining ? 'Stop' : 'Auto Train';
+    autoBtn.textContent = autoTraining ? 'STOP' : 'AUTO TRAIN';
     autoBtn.className = autoTraining ? 'stop' : '';
     
     if (autoTraining) {
-        log('Auto training started');
+        log('▶ Auto training START');
         autoTimer = setInterval(async () => {
             await trainStep();
-        }, 100);
+        }, 50); // Быстрее
     } else {
         clearInterval(autoTimer);
-        log('Auto training stopped');
+        log('⏸ Auto training STOP');
     }
 });
 
@@ -255,7 +287,7 @@ resetBtn.addEventListener('click', () => {
     if (autoTraining) {
         clearInterval(autoTimer);
         autoTraining = false;
-        autoBtn.textContent = 'Auto Train';
+        autoBtn.textContent = 'AUTO TRAIN';
         autoBtn.className = '';
     }
     
@@ -266,6 +298,7 @@ resetBtn.addEventListener('click', () => {
     
     baselineModel = createBaselineModel();
     studentModel = createStudentModel();
+    studentOptimizer = tf.train.adam(0.02);
     
     baselineModel.predict(inputTensor);
     studentModel.predict(inputTensor);
@@ -273,7 +306,7 @@ resetBtn.addEventListener('click', () => {
     step = 0;
     updateDisplays();
     
-    log('Reset complete');
+    log('🔄 RESET');
 });
 
 // ==================== СТАРТ ====================
