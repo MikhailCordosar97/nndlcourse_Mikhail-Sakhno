@@ -26,8 +26,12 @@ function log(msg) {
 }
 
 function drawTensor(tensor, canvas) {
-    // tensor имеет форму [1, SIZE*SIZE]
-    const data = tensor.dataSync();
+    let data;
+    if (tensor.shape.length === 4) {
+        data = tensor.squeeze().dataSync(); // [SIZE, SIZE]
+    } else {
+        data = tensor.dataSync(); // плоский массив из 256 элементов
+    }
     const ctx = canvas.getContext('2d');
     const size = canvas.width;
     const cellSize = size / SIZE;
@@ -37,7 +41,7 @@ function drawTensor(tensor, canvas) {
         for (let x = 0; x < SIZE; x++) {
             const val = data[y * SIZE + x];
             const bright = Math.floor(val * 255);
-            ctx.fillStyle = `rgb(${bright}, ${bright}, ${bright})`;
+            ctx.fillStyle = `rgb(0, ${bright}, 0)`;
             ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
         }
     }
@@ -49,7 +53,6 @@ function mseLoss(yTrue, yPred) {
     return tf.mean(tf.square(tf.sub(yTrue, yPred)));
 }
 
-// Sorted MSE: сравниваем отсортированные значения
 function sortedMSELoss(yTrue, yPred) {
     return tf.tidy(() => {
         const yTrueFlat = yTrue.reshape([-1]);
@@ -61,16 +64,16 @@ function sortedMSELoss(yTrue, yPred) {
     });
 }
 
-// Smoothness: штраф за разности между соседями
 function smoothnessLoss(yPred) {
     return tf.tidy(() => {
-        // yPred: [1, 256]
-        const flat = yPred.dataSync(); // массив длины 256
+        const yImage = yPred.reshape([1, SIZE, SIZE, 1]);
+        const data = yImage.squeeze().dataSync(); // [SIZE, SIZE]
+        
         let loss = 0;
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE - 1; x++) {
                 const idx = y * SIZE + x;
-                const diff = flat[idx + 1] - flat[idx];
+                const diff = data[idx + 1] - data[idx];
                 loss += diff * diff;
             }
         }
@@ -78,7 +81,7 @@ function smoothnessLoss(yPred) {
             for (let x = 0; x < SIZE; x++) {
                 const idx = y * SIZE + x;
                 const idx2 = (y + 1) * SIZE + x;
-                const diff = flat[idx2] - flat[idx];
+                const diff = data[idx2] - data[idx];
                 loss += diff * diff;
             }
         }
@@ -87,24 +90,15 @@ function smoothnessLoss(yPred) {
     });
 }
 
-// Direction Loss: поощряем яркость справа
 function directionLoss(yPred) {
     return tf.tidy(() => {
-        // yPred: [1, 256]
-        const flat = yPred.dataSync();
-        // Создаём плоскую маску: для каждого пикселя значение = x / (SIZE-1)
-        const mask = [];
-        for (let y = 0; y < SIZE; y++) {
-            for (let x = 0; x < SIZE; x++) {
-                mask.push(x / (SIZE - 1));
-            }
-        }
-        // Превращаем маску в тензор той же формы, что и yPred
-        const maskTensor = tf.tensor(mask).reshape([1, SIZE * SIZE]);
-        // Поэлементное умножение и среднее
-        const meanProduct = tf.mean(tf.mul(yPred, maskTensor));
-        // Чем больше совпадение, тем меньше loss -> берём отрицание
-        return tf.neg(meanProduct);
+        // Маска: линейно возрастает по x от 0 до 1
+        const range = tf.linspace(0, 1, SIZE); // [SIZE]
+        const mask2d = tf.tile(range, [SIZE, 1]); // [SIZE, SIZE]
+        const mask = mask2d.reshape([1, SIZE, SIZE, 1]); // [1, SIZE, SIZE, 1]
+        
+        const yImage = yPred.reshape([1, SIZE, SIZE, 1]);
+        return tf.neg(tf.mean(tf.mul(yImage, mask)));
     });
 }
 
@@ -115,7 +109,9 @@ function studentLoss(yTrue, yPred) {
         const smooth = smoothnessLoss(yPred);
         const dir = directionLoss(yPred);
         
-        // sorted почти не влияет, direction главный
+        // sorted очень маленький – разрешаем переставлять пиксели,
+        // smooth – убираем резкость,
+        // direction – главный двигатель градиента.
         return sorted
             .mul(0.001)
             .add(smooth.mul(0.05))
@@ -220,6 +216,7 @@ function init() {
     step = 0;
     updateDisplays();
     log('Ready. Press "Train 1 Step" or "Auto Train".');
+    log('Sorted=0.001, Smooth=0.05, Direction=1.0');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
