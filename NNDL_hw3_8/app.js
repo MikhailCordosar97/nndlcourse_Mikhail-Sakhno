@@ -41,7 +41,8 @@ function drawTensor(tensor, canvas) {
         for (let x = 0; x < SIZE; x++) {
             const val = data[y * SIZE + x];
             const bright = Math.floor(val * 255);
-            ctx.fillStyle = `rgb(${bright}, ${bright}, ${bright})`;
+            // Зеленые оттенки: R=0, G=bright, B=0
+            ctx.fillStyle = `rgb(0, ${bright}, 0)`;
             ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
         }
     }
@@ -103,14 +104,27 @@ function directionLoss(yPred) {
             flat = yPred.dataSync();
         }
         
-        let loss = 0;
+        // Считаем среднюю яркость по каждой колонке
+        let colMeans = new Array(SIZE).fill(0);
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE; x++) {
-                const target = x / (SIZE - 1);
-                loss += Math.pow(flat[y * SIZE + x] - target, 2);
+                colMeans[x] += flat[y * SIZE + x];
             }
         }
-        return tf.scalar(loss / (SIZE * SIZE));
+        for (let x = 0; x < SIZE; x++) {
+            colMeans[x] /= SIZE;
+        }
+        
+        // Хотим, чтобы средние яркости росли слева направо
+        let loss = 0;
+        for (let x = 0; x < SIZE - 1; x++) {
+            // если следующая колонка темнее предыдущей - штраф
+            if (colMeans[x + 1] < colMeans[x]) {
+                loss += (colMeans[x] - colMeans[x + 1]) * 10;
+            }
+        }
+        
+        return tf.scalar(loss);
     });
 }
 
@@ -121,11 +135,13 @@ function studentLoss(yTrue, yPred) {
         const smooth = smoothnessLoss(yPred);
         const dir = directionLoss(yPred);
         
-        // sorted почти не влияет, direction главный
+        // sorted важнее всего - сохраняет цвета
+        // smooth сглаживает
+        // dir создает тренд
         return sorted
-            .mul(0.001)
+            .mul(1.0)
             .add(smooth.mul(0.05))
-            .add(dir.mul(5.0));
+            .add(dir.mul(0.02));
     });
 }
 
@@ -149,6 +165,10 @@ function createStudentModel() {
     const model = tf.sequential();
     model.add(tf.layers.dense({
         inputShape: [SIZE * SIZE],
+        units: 128,
+        activation: 'relu'
+    }));
+    model.add(tf.layers.dense({
         units: 128,
         activation: 'relu'
     }));
@@ -209,6 +229,7 @@ function updateDisplays() {
 function init() {
     log('Initializing...');
 
+    // Случайный шум
     const data = new Float32Array(SIZE * SIZE);
     for (let i = 0; i < data.length; i++) {
         data[i] = Math.random();
@@ -222,6 +243,7 @@ function init() {
     step = 0;
     updateDisplays();
     log('Ready. Press "Train 1 Step" or "Auto Train".');
+    log('Зеленые оттенки, SortedMSE=1.0 Smooth=0.05 Direction=0.02');
 }
 
 // ==================== ОБРАБОТЧИКИ ====================
